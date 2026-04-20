@@ -404,21 +404,23 @@
     // Reshape each link into the legacy "subgraph" shape so the rendering
     // code below works unchanged.
     const reshape = (l) => {
-      const addr = (l.author || "").toLowerCase();
-      const cit  = citById[addr];
-      const parentId = String(l.parentId || "0");
-      // Genesis (id "0") has no parent; its own parentId is "0" by convention.
-      // Also tolerate the legacy "0x0" in case old data lingers.
-      const hasParent = l.linkId !== "0" && parentId !== "0" && parentId !== "0x0";
+      const addr     = (l.author || "").toLowerCase();
+      const cit      = citById[addr];
+      const linkId   = String(l.linkId);
+      const parentId = String(l.parentId ?? "0");
+      // Only link 0 (genesis) has no parent. Every other link has a
+      // parent — even when parentId === "0", it just means genesis is
+      // the parent.
+      const isGenesis = linkId === "0";
       return {
-        id:          String(l.linkId),
+        id:          linkId,
         text:        l.text || "",
         isRecap:     !!l.isRecap,
         voteCount:   l.voteCount || 0,
         blockNumber: l.createdAt || l.authoredAt || 0,
         timestamp:   l.authoredAt || 0,
         cleared:     !!l.cleared,
-        parent:      hasParent ? { id: parentId } : null,
+        parent:      isGenesis ? null : { id: parentId },
         author:      { id: addr, name: cit ? cit.name : "" },
       };
     };
