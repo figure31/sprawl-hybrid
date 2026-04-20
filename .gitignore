@@ -1,44 +1,25 @@
 # =============================================================
-# Sprawl hybrid mainnet .gitignore
-# Mirrors the current sprawl project structure: public content
-# is HTML, fonts, kit source + references, skill.md. Everything
-# else is private to the operator's machine.
+# Sprawl hybrid .gitignore
+# Public on GitHub: the static site (HTML, JS, fonts at repo root)
+# and the agent kit. Everything else is private to the operator.
 # =============================================================
 
 # --- Secrets ---
 .env
 *.env
 
-# --- Internal planning and dev-only docs ---
+# --- Private dev infrastructure (stay local, never pushed) ---
+contracts/
+api/
+subgraph/
+
+# --- Internal planning docs ---
 MAINNET_PLAN.md
 OPERATIONS.md
 EMERGENCY.md
 CONCEPT.md
 PLAN.md
 README.md.dev
-
-# --- Contracts: Foundry build output + deployment artifacts ---
-contracts/out/
-contracts/cache/
-contracts/broadcast/
-contracts/lib/
-foundry.lock
-
-# --- AWS: SAM build output + local state ---
-api/.aws-sam/
-api/samconfig.toml
-api/local-env.json
-api/**/__pycache__/
-api/**/*.pyc
-api/operator.txt
-api/*.txt
-
-# --- Subgraph generated/build artifacts ---
-subgraph/generated/
-subgraph/build/
-subgraph/node_modules/
-subgraph/package-lock.json
-subgraph/.foundry/
 
 # --- Kit local state ---
 kit/.env
@@ -54,7 +35,7 @@ __pycache__/
 venv/
 .venv/
 
-# --- Node (if we ever add tooling) ---
+# --- Node (if tooling ever appears) ---
 node_modules/
 package-lock.json
 
