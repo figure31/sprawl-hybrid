@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprawl — Arcs</title>
+<script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+  html.dark { --fg: #fff; --bg: #000; }
+  :root {
+    --fg: #000;
+    --bg: #fff;
+    --mute: #888;
+    --rule: 1px;
+    --pad: 12px;
+    --topbar-h: 44px;
+    --font-size: 13px;
+    --line-height: 1.5;
+  }
+  * { box-sizing: border-box; font-size: inherit; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+    min-height: 100%;
+  }
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--topbar-h);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
+    background: var(--bg);
+    z-index: 20;
+  }
+  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar nav { display: flex; gap: 18px; }
+  .topbar nav.nav-middle { justify-self: center; }
+  .topbar nav.nav-right  { justify-self: end; }
+  .topbar nav a.active { text-decoration: underline; }
+
+  main {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: calc(var(--topbar-h) + 24px) var(--pad) 48px;
+  }
+  h2 {
+    margin: 0 0 24px 0;
+    font-size: var(--font-size);
+    font-weight: normal;
+    letter-spacing: 0.08em;
+  }
+  h3 {
+    margin: 32px 0 12px 0;
+    font-size: var(--font-size);
+    font-weight: normal;
+    letter-spacing: 0.08em;
+    color: var(--mute);
+  }
+  h3:first-of-type { margin-top: 0; }
+
+  .arc { margin-bottom: 20px; }
+  .arc .id { }
+  .arc .desc { margin-top: 2px; }
+  .arc .meta { color: var(--mute); margin-top: 4px; letter-spacing: 0.04em; }
+  .legend { margin-bottom: 32px; color: var(--mute); }
+  .legend span { color: var(--fg); letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="title" href="index.html">SPRAWL</a>
+  <nav class="nav-middle">
+    <a href="authors.html">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html" class="active">ARCS</a>
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<main>
+  <div class="legend">
+    Planning notes the creator plants at a specific link, picked up (or not) by later links in the same branch that tag them with <span>{arc-id}</span>. An arc has no state beyond its anchor and the references it accumulates.
+  </div>
+  <div id="list">loading…</div>
+</main>
+
+<script>
+document.querySelectorAll(".topbar nav a.active").forEach(el => {
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (document.referrer && new URL(document.referrer).origin === location.origin) {
+      history.back();
+    } else {
+      location.href = el.getAttribute("href") || "index.html";
+    }
+  });
+});
+(function setupTheme() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
+  sync();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+    sync();
+  });
+})();
+</script>
+<script src="sprawl-data.js"></script>
+<script>
+(async () => {
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]
+    ));
+  }
+
+  try {
+    const [resp, citizens] = await Promise.all([
+      SprawlAPI.arcs(1000),
+      SprawlGraph.citizens(1000),
+    ]);
+    const arcs = (resp && resp.items) || [];
+    const citById = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c]));
+    if (!arcs.length) {
+      document.getElementById("list").textContent = "(none yet)";
+      return;
+    }
+
+    // Fetch references per arc in parallel.
+    const refsByArc = {};
+    await Promise.all(arcs.map(async a => {
+      const r = await SprawlAPI.arcReferences(a.arcId, 200);
+      refsByArc[a.arcId] = (r && r.items) || [];
+    }));
+
+    const html = [];
+    for (const a of arcs) {
+      const refs = refsByArc[a.arcId] || [];
+      const fmt = id => id.length <= 8 ? id : id.slice(0, 10) + "…";
+      const mentionsHtml = refs.length
+        ? `MENTIONS: ${refs.map(r => `<a href="index.html#link-${r.linkId}">#${fmt(r.linkId)}</a>`).join(", ")}`
+        : "not yet referenced";
+      const anchorId = escapeHtml(a.anchorLinkId || "");
+      const cit = citById[(a.creator || "").toLowerCase()];
+      const creatorName = cit && cit.name ? cit.name : a.creator;
+      const creatorHref = "author.html?addr=" + encodeURIComponent(a.creator);
+      const creatorHtml = `<a href="${creatorHref}">${escapeHtml(creatorName)}</a>`;
+      html.push(`<div class="arc">
+        <div class="id">{${escapeHtml(a.arcId)}}</div>
+        ${a.description ? `<div class="desc">${escapeHtml(a.description)}</div>` : ""}
+        <div class="meta">BY ${creatorHtml}</div>
+        <div class="meta">ANCHORED AT <a href="index.html#link-${anchorId}">#${fmt(anchorId)}</a></div>
+        <div class="meta">${mentionsHtml}</div>
+      </div>`);
+    }
+    document.getElementById("list").innerHTML = html.join("") || "(none yet)";
+  } catch (e) {
+    document.getElementById("list").textContent = "Could not load arcs: " + e.message;
+  }
+})();
+</script>
+
+</body>
+</html>

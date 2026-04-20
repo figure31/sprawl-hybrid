@@ -1,0 +1,701 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Sprawl hybrid mainnet API.
+  Off-chain: citizen writes (links, recaps, entities, arcs, votes, profiles),
+  reads, collect-prepare, admin clears.
+  On-chain sync: indexer Lambda mirrors contract events into DynamoDB.
+
+Parameters:
+  Stage:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  ContractAddress:
+    Type: String
+    Description: Deployed Sprawl contract address (Sepolia for dev, mainnet for prod)
+  ChainId:
+    Type: Number
+    Default: 11155111
+    Description: Chain id (11155111 Sepolia, 1 mainnet)
+  SubgraphUrl:
+    Type: String
+    Description: Goldsky subgraph URL for on-chain state queries
+  OperatorKeySecretName:
+    Type: String
+    Default: sprawl/operator-key
+    Description: Secrets Manager secret holding the operator private key
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 10
+    MemorySize: 256
+    Architectures: [arm64]
+    Tracing: Active
+    Environment:
+      Variables:
+        STAGE: !Ref Stage
+        CITIZENS_TABLE: !Ref CitizensTable
+        LINKS_TABLE: !Ref LinksTable
+        ENTITIES_TABLE: !Ref EntitiesTable
+        ARCS_TABLE: !Ref ArcsTable
+        VOTES_TABLE: !Ref VotesTable
+        ENTITY_MENTIONS_TABLE: !Ref EntityMentionsTable
+        ARC_REFERENCES_TABLE: !Ref ArcReferencesTable
+        COUNTERS_TABLE: !Ref CountersTable
+        ARCHIVE_BUCKET: !Ref ArchiveBucket
+        CONTRACT_ADDRESS: !Ref ContractAddress
+        CHAIN_ID: !Ref ChainId
+        OPERATOR_SECRET_NAME: !Ref OperatorKeySecretName
+        SUBGRAPH_URL: !Ref SubgraphUrl
+
+Resources:
+
+  # =====================================================================
+  # DynamoDB tables
+  # =====================================================================
+
+  CitizensTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-citizens
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: address
+          AttributeType: S
+        - AttributeName: name
+          AttributeType: S
+      KeySchema:
+        - AttributeName: address
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byName
+          KeySchema:
+            - AttributeName: name
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+
+  LinksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-links
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: linkId
+          AttributeType: S
+        - AttributeName: parentId
+          AttributeType: S
+        - AttributeName: author
+          AttributeType: S
+        - AttributeName: authoredAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: linkId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byParent
+          KeySchema:
+            - AttributeName: parentId
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: byAuthor
+          KeySchema:
+            - AttributeName: author
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  EntitiesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-entities
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: entityId
+          AttributeType: S
+        - AttributeName: entityType
+          AttributeType: S
+        - AttributeName: creator
+          AttributeType: S
+        - AttributeName: authoredAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: entityId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byType
+          KeySchema:
+            - AttributeName: entityType
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: byCreator
+          KeySchema:
+            - AttributeName: creator
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ArcsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-arcs
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: arcId
+          AttributeType: S
+        - AttributeName: anchorLinkId
+          AttributeType: S
+        - AttributeName: creator
+          AttributeType: S
+        - AttributeName: authoredAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: arcId
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: byAnchor
+          KeySchema:
+            - AttributeName: anchorLinkId
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: byCreator
+          KeySchema:
+            - AttributeName: creator
+              KeyType: HASH
+            - AttributeName: authoredAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  VotesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-votes
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: linkId
+          AttributeType: S
+        - AttributeName: voter
+          AttributeType: S
+        - AttributeName: votedAt
+          AttributeType: N
+      KeySchema:
+        - AttributeName: linkId
+          KeyType: HASH
+        - AttributeName: voter
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: byVoter
+          KeySchema:
+            - AttributeName: voter
+              KeyType: HASH
+            - AttributeName: votedAt
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # SalesTable + IndexerStateTable removed — sales live in Goldsky subgraph.
+
+  CountersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-counters
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: key
+          AttributeType: S
+      KeySchema:
+        - AttributeName: key
+          KeyType: HASH
+
+  EntityMentionsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-entity-mentions
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: entityId
+          AttributeType: S
+        - AttributeName: linkId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: entityId
+          KeyType: HASH
+        - AttributeName: linkId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: byLink
+          KeySchema:
+            - AttributeName: linkId
+              KeyType: HASH
+            - AttributeName: entityId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  ArcReferencesTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub sprawl-${Stage}-arc-references
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: arcId
+          AttributeType: S
+        - AttributeName: linkId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: arcId
+          KeyType: HASH
+        - AttributeName: linkId
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: byLink
+          KeySchema:
+            - AttributeName: linkId
+              KeyType: HASH
+            - AttributeName: arcId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # =====================================================================
+  # S3 archive
+  # =====================================================================
+
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub sprawl-${Stage}-archive-${AWS::AccountId}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # =====================================================================
+  # Shared Lambda layer (EIP-712 helpers, DynamoDB client, etc.)
+  # =====================================================================
+
+  SharedLayer:
+    Type: AWS::Serverless::LayerVersion
+    Properties:
+      LayerName: !Sub sprawl-${Stage}-shared
+      ContentUri: src/layer/
+      CompatibleRuntimes: [python3.12]
+    Metadata:
+      BuildMethod: makefile
+
+  # =====================================================================
+  # API Lambda functions
+  # =====================================================================
+
+  WriteLinkFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-write-link
+      CodeUri: src/write_link/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBReadPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref EntityMentionsTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ArcReferencesTable }
+        - S3CrudPolicy:        { BucketName: !Ref ArchiveBucket }
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${OperatorKeySecretName}-*
+      Events:
+        WriteLink:
+          Type: Api
+          Properties:
+            Path: "/links"
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  WriteEntityFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-write-entity
+      CodeUri: src/write_entity/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref EntitiesTable }
+        - DynamoDBReadPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CitizensTable }
+        - S3CrudPolicy:        { BucketName: !Ref ArchiveBucket }
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${OperatorKeySecretName}-*
+      Events:
+        WriteEntity:
+          Type: Api
+          Properties:
+            Path: "/entities"
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  WriteArcFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-write-arc
+      CodeUri: src/write_arc/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref ArcsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBReadPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CitizensTable }
+        - S3CrudPolicy:        { BucketName: !Ref ArchiveBucket }
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${OperatorKeySecretName}-*
+      Events:
+        WriteArc:
+          Type: Api
+          Properties:
+            Path: "/arcs"
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  WriteVoteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-write-vote
+      CodeUri: src/write_vote/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref VotesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBReadPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CitizensTable }
+        - S3CrudPolicy:        { BucketName: !Ref ArchiveBucket }
+        - Statement:
+            Effect: Allow
+            Action: secretsmanager:GetSecretValue
+            Resource: !Sub arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${OperatorKeySecretName}-*
+      Events:
+        WriteVote:
+          Type: Api
+          Properties:
+            Path: "/votes"
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  WriteProfileFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-write-profile
+      CodeUri: src/write_profile/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref CitizensTable }
+      Events:
+        WriteProfile:
+          Type: Api
+          Properties:
+            Path: "/profile"
+            Method: POST
+            RestApiId: !Ref ApiGateway
+
+  ReadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-read
+      CodeUri: src/read/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      MemorySize: 512
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref CitizensTable }
+        - DynamoDBReadPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBReadPolicy: { TableName: !Ref EntitiesTable }
+        - DynamoDBReadPolicy: { TableName: !Ref ArcsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref VotesTable }
+        - DynamoDBReadPolicy: { TableName: !Ref EntityMentionsTable }
+        - DynamoDBReadPolicy: { TableName: !Ref ArcReferencesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref CountersTable }
+      Events:
+        Citizen:
+          Type: Api
+          Properties: { Path: "/citizens/{address}", Method: GET, RestApiId: !Ref ApiGateway }
+        CitizenByName:
+          Type: Api
+          Properties: { Path: "/citizens/by-name/{name}", Method: GET, RestApiId: !Ref ApiGateway }
+        CitizenList:
+          Type: Api
+          Properties: { Path: "/citizens", Method: GET, RestApiId: !Ref ApiGateway }
+        CitizenStats:
+          Type: Api
+          Properties: { Path: "/citizens/{address}/stats", Method: GET, RestApiId: !Ref ApiGateway }
+        NextLinkId:
+          Type: Api
+          Properties: { Path: "/next-link-id", Method: GET, RestApiId: !Ref ApiGateway }
+        Link:
+          Type: Api
+          Properties: { Path: "/links/{linkId}", Method: GET, RestApiId: !Ref ApiGateway }
+        LinkChildren:
+          Type: Api
+          Properties: { Path: "/links/{linkId}/children", Method: GET, RestApiId: !Ref ApiGateway }
+        LinkContext:
+          Type: Api
+          Properties: { Path: "/links/{linkId}/context", Method: GET, RestApiId: !Ref ApiGateway }
+        Entity:
+          Type: Api
+          Properties: { Path: "/entities/{entityId}", Method: GET, RestApiId: !Ref ApiGateway }
+        EntityList:
+          Type: Api
+          Properties: { Path: "/entities", Method: GET, RestApiId: !Ref ApiGateway }
+        EntityByType:
+          Type: Api
+          Properties: { Path: "/entities/by-type/{type}", Method: GET, RestApiId: !Ref ApiGateway }
+        EntityMentions:
+          Type: Api
+          Properties: { Path: "/entities/{entityId}/mentions", Method: GET, RestApiId: !Ref ApiGateway }
+        Arc:
+          Type: Api
+          Properties: { Path: "/arcs/{arcId}", Method: GET, RestApiId: !Ref ApiGateway }
+        ArcList:
+          Type: Api
+          Properties: { Path: "/arcs", Method: GET, RestApiId: !Ref ApiGateway }
+        ArcByAnchor:
+          Type: Api
+          Properties: { Path: "/arcs/by-anchor/{linkId}", Method: GET, RestApiId: !Ref ApiGateway }
+        ArcReferences:
+          Type: Api
+          Properties: { Path: "/arcs/{arcId}/references", Method: GET, RestApiId: !Ref ApiGateway }
+        Search:
+          Type: Api
+          Properties: { Path: "/search", Method: GET, RestApiId: !Ref ApiGateway }
+        VoteByLink:
+          Type: Api
+          Properties: { Path: "/votes/by-link/{linkId}", Method: GET, RestApiId: !Ref ApiGateway }
+        VoteByVoter:
+          Type: Api
+          Properties: { Path: "/votes/by-voter/{address}", Method: GET, RestApiId: !Ref ApiGateway }
+        FeedLinks:
+          Type: Api
+          Properties: { Path: "/feed/recent-links", Method: GET, RestApiId: !Ref ApiGateway }
+        FeedByAuthor:
+          Type: Api
+          Properties: { Path: "/feed/by-author/{address}", Method: GET, RestApiId: !Ref ApiGateway }
+        # /feed/recent-sales and /stats/global served by Goldsky subgraph now.
+
+  CollectPrepareFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-collect-prepare
+      CodeUri: src/collect_prepare/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBReadPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBReadPolicy: { TableName: !Ref EntitiesTable }
+        - DynamoDBReadPolicy: { TableName: !Ref ArcsTable }
+      Events:
+        Prepare:
+          Type: Api
+          Properties:
+            Path: "/collect/prepare/{kind}/{id}"
+            Method: GET
+            RestApiId: !Ref ApiGateway
+
+  AdminClearFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub sprawl-${Stage}-admin-clear
+      CodeUri: src/admin_clear/
+      Handler: handler.lambda_handler
+      Layers: [!Ref SharedLayer]
+      Policies:
+        - DynamoDBCrudPolicy: { TableName: !Ref LinksTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref EntitiesTable }
+        - DynamoDBCrudPolicy: { TableName: !Ref ArcsTable }
+      Events:
+        ClearLink:
+          Type: Api
+          Properties: { Path: "/admin/clear/link/{id}", Method: POST, RestApiId: !Ref ApiGateway }
+        ClearEntity:
+          Type: Api
+          Properties: { Path: "/admin/clear/entity/{id}", Method: POST, RestApiId: !Ref ApiGateway }
+        ClearArc:
+          Type: Api
+          Properties: { Path: "/admin/clear/arc/{id}", Method: POST, RestApiId: !Ref ApiGateway }
+
+  # IndexerFunction removed — on-chain indexing delegated to Goldsky subgraph.
+
+  # =====================================================================
+  # API Gateway
+  # =====================================================================
+
+  ApiGateway:
+    Type: AWS::Serverless::Api
+    Properties:
+      Name: !Sub sprawl-${Stage}-api
+      StageName: !Ref Stage
+      EndpointConfiguration:
+        Type: REGIONAL
+      Cors:
+        AllowMethods: "'GET,POST,OPTIONS'"
+        AllowHeaders: "'Content-Type'"
+        AllowOrigin: "'*'"
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          ThrottlingBurstLimit: 50
+          ThrottlingRateLimit: 20
+
+  # =====================================================================
+  # WAF — per-IP rate limits on the API stage
+  # =====================================================================
+
+  ApiWaf:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub sprawl-${Stage}-waf
+      Scope: REGIONAL
+      DefaultAction:
+        Allow: {}
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub sprawl-${Stage}-waf
+      Rules:
+        # Reads: 2000 requests / 5 min per IP. Humans never hit this.
+        - Name: RateLimitReads
+          Priority: 1
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 2000
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  SearchString: GET
+                  FieldToMatch: { Method: {} }
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+                  PositionalConstraint: EXACTLY
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub sprawl-${Stage}-reads
+        # Writes: 100 requests / 5 min per IP. More than a human could
+        # ever produce since each write requires a wallet signature.
+        - Name: RateLimitWrites
+          Priority: 2
+          Action:
+            Block: {}
+          Statement:
+            RateBasedStatement:
+              Limit: 100
+              AggregateKeyType: IP
+              ScopeDownStatement:
+                ByteMatchStatement:
+                  SearchString: POST
+                  FieldToMatch: { Method: {} }
+                  TextTransformations:
+                    - Priority: 0
+                      Type: NONE
+                  PositionalConstraint: EXACTLY
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub sprawl-${Stage}-writes
+
+  ApiWafAssociation:
+    Type: AWS::WAFv2::WebACLAssociation
+    Properties:
+      ResourceArn: !Sub arn:aws:apigateway:${AWS::Region}::/restapis/${ApiGateway}/stages/${Stage}
+      WebACLArn: !GetAtt ApiWaf.Arn
+
+  # =====================================================================
+  # CloudWatch alarms — notify via SNS if anything goes sideways
+  # =====================================================================
+
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub sprawl-${Stage}-alarms
+
+  WriteLambdaErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub sprawl-${Stage}-write-errors
+      AlarmDescription: Write-path Lambda error rate exceeded threshold
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 10
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  # IndexerErrorAlarm removed — Goldsky owns the indexing health surface now.
+
+  WafBlockSpikeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub sprawl-${Stage}-waf-spike
+      AlarmDescription: WAF is blocking an unusual volume of requests
+      Namespace: AWS/WAFV2
+      MetricName: BlockedRequests
+      Dimensions:
+        - Name: WebACL
+          Value: !Sub sprawl-${Stage}-waf
+        - Name: Region
+          Value: !Ref AWS::Region
+        - Name: Rule
+          Value: ALL
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 500
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+Outputs:
+  ApiUrl:
+    Description: HTTPS endpoint for the Sprawl API
+    Value: !Sub https://${ApiGateway}.execute-api.${AWS::Region}.amazonaws.com/${Stage}
+  ArchiveBucketName:
+    Value: !Ref ArchiveBucket
+  CitizensTableName:
+    Value: !Ref CitizensTable
+  LinksTableName:
+    Value: !Ref LinksTable
+  AlarmTopicArn:
+    Description: SNS topic that receives alarm notifications — subscribe your email here
+    Value: !Ref AlarmTopic

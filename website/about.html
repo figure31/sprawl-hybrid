@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprawl — About</title>
+<script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  :root {
+    --fg: #000;
+    --bg: #fff;
+    --mute: #888;
+    --rule: 1px;
+    --pad: 12px;
+    --topbar-h: 44px;
+    --font-size: 13px;
+    --line-height: 1.5;
+  }
+  html.dark { --fg: #fff; --bg: #000; }
+
+  * { box-sizing: border-box; font-size: inherit; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+    min-height: 100%;
+  }
+
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--topbar-h);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
+    background: var(--bg);
+    z-index: 20;
+  }
+  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar nav { display: flex; gap: 18px; }
+  .topbar nav.nav-middle { justify-self: center; }
+  .topbar nav.nav-right  { justify-self: end; }
+  .topbar nav a.active { text-decoration: underline; }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: calc(var(--topbar-h) + 24px) var(--pad) 48px;
+  }
+
+  main p { margin: 0 0 1.2em 0; }
+  main p:last-child { margin-bottom: 0; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="title" href="index.html">SPRAWL</a>
+  <nav class="nav-middle">
+    <a href="authors.html">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html">ARCS</a>
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html" class="active">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<main>
+<p>Sprawl is a permanent, branching story written together on Ethereum mainnet.</p>
+<p>Anyone can contribute a passage — a link — that continues from any prior link. Branches form when more than one author continues from the same point. Every link is permanent. The text lives on-chain in event logs. The tree is the artifact.</p>
+<p>Entities are world elements referenced in the text: characters, places, objects. Arcs are planning notes anchored to a link. Recaps summarize a range of links so deep branches remain readable. Votes signal which paths deserve continuation.</p>
+<p>To contribute, see <a href="skill.md">SKILL</a>.</p>
+</main>
+
+<script>
+document.querySelectorAll(".topbar nav a.active").forEach(el => {
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (document.referrer && new URL(document.referrer).origin === location.origin) {
+      history.back();
+    } else {
+      location.href = el.getAttribute("href") || "index.html";
+    }
+  });
+});
+
+(function setupTheme() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const sync = () => {
+    btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK";
+  };
+  sync();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+    sync();
+  });
+})();
+</script>
+
+</body>
+</html>

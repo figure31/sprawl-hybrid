@@ -1,0 +1,1302 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprawl</title>
+<script>
+  // Apply persisted theme before any paint so there's no white flash.
+  try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}
+</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+
+  :root {
+    --fg: #000;
+    --bg: #fff;
+    --mute: #888;          /* neutral grey — same in both themes */
+    --rule: 1px;
+    --pad: 12px;
+    --topbar-h: 44px;
+    --controls-h: 36px;    /* reserved band at top of each panel for its controls */
+    --font-size: 13px;
+    --line-height: 1.5;
+  }
+
+  /* Dark theme — swap foreground and background. Everything else pulls from
+     these CSS variables so the whole UI inverts in one step. */
+  html.dark { --fg: #fff; --bg: #000; }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+    height: 100%;
+    overflow: hidden;
+  }
+
+  /* Consistency guard: no element anywhere gets a different font-size.
+     Every text element inherits the body's --font-size. */
+  * { font-size: inherit; }
+
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  /* Top bar — three-section grid: title (left), primary nav (center),
+     secondary nav (right). */
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--topbar-h);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
+    background: var(--bg);
+    z-index: 20;
+  }
+  .topbar .title-group {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    justify-self: start;
+  }
+  .topbar .title { letter-spacing: 0.08em; }
+  .topbar .stats {
+    color: var(--mute);
+    letter-spacing: 0.04em;
+  }
+  .topbar .stats span { color: var(--fg); margin-right: 4px; }
+  .topbar nav { display: flex; gap: 18px; align-items: center; }
+  .topbar .nav-middle { justify-self: center; }
+  .topbar .nav-right  { justify-self: end; }
+  .topbar #search {
+    font-family: inherit;
+    font-size: inherit;
+    border: none;
+    border-bottom: var(--rule) solid var(--fg);
+    background: transparent;
+    color: var(--fg);
+    padding: 2px 2px;
+    width: 72px;
+    outline: none;
+    letter-spacing: 0.04em;
+  }
+  .topbar #search::placeholder { color: var(--mute); }
+
+  /* Two-column layout: text on the left, tree on the right. Entities used
+     to live in a third column; they're now hover-tooltips on the text. */
+  .layout {
+    position: fixed;
+    top: var(--topbar-h); left: 0; right: 0; bottom: 0;
+    display: grid;
+    grid-template-columns: 50% 50%;
+  }
+  .panel {
+    border-right: var(--rule) solid var(--fg);
+    overflow: auto;
+    padding: var(--pad);
+    position: relative;
+  }
+  .panel:last-child { border-right: none; }
+
+  /* The text panel is restructured so its controls can stay pinned while the
+     reading content scrolls below them. */
+  #text-panel {
+    overflow: hidden;
+    padding: 0;
+  }
+  /* Opaque band covering the top controls row so scrolling text never bleeds
+     through behind the buttons, plus a thin rule under it so the controls
+     row is clearly separated from the content. Sits between the scroll
+     content (z-index: 0) and the controls (z-index: 2). */
+  #text-panel::before,
+  #tree-panel::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: var(--controls-h);
+    background: var(--bg);
+    border-bottom: var(--rule) solid var(--fg);
+    z-index: 1;
+    pointer-events: none;
+  }
+  #text-panel .panel-scroll {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    overflow: auto;
+    padding: var(--pad);
+    /* reserve space for the controls band plus extra breathing room so the
+       reading content doesn't sit flush against the divider rule */
+    padding-top: calc(var(--controls-h) + var(--pad));
+    /* Scrolling works, the scrollbar itself is hidden. */
+    scrollbar-width: none;            /* Firefox */
+    /* Disable browser scroll-anchoring so our explicit scrollTop math isn't
+       competing with Chrome's/Firefox's auto-preservation heuristic. */
+    overflow-anchor: none;
+  }
+  #text-panel .panel-scroll::-webkit-scrollbar { display: none; } /* WebKit */
+  .panel-controls {
+    position: absolute;
+    top: 0;
+    right: var(--pad);
+    height: var(--controls-h);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    z-index: 2;
+    background: var(--bg);
+    padding-left: 8px;   /* tiny gutter so content underneath doesn't touch */
+  }
+  .panel-controls.panel-controls-left {
+    right: auto;
+    left: var(--pad);
+    padding-left: 0;
+    padding-right: 8px;
+  }
+  /* Middle readout in the tree panel — the currently highlighted node's
+     meta line. Sits on the same row as the reset/random and ⛶ controls. */
+  .panel-controls.panel-controls-center {
+    position: absolute;
+    top: 0;
+    height: var(--controls-h);
+    display: flex;
+    align-items: center;
+    left: 50%;
+    right: auto;
+    transform: translateX(-50%);
+    background: var(--bg);
+    color: var(--mute);
+    letter-spacing: 0.04em;
+    padding: 0;
+    z-index: 2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 60%;
+  }
+  .ctl { cursor: pointer; user-select: none; color: var(--mute); }
+  .ctl-sep { user-select: none; color: var(--mute); }
+  /* Path stats readout on the left of the text panel's control row. Grey
+     and quiet, matching the other readouts/buttons. */
+  #text-path-stats { color: var(--mute); letter-spacing: 0.04em; }
+
+  /* (h2 headings are no longer used in the panels; kept no styles here.) */
+
+  /* Text panel */
+  .meta {
+    color: var(--mute);   /* the one place grey is allowed */
+    margin-bottom: 6px;
+    letter-spacing: 0.04em;
+  }
+  .text-body {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  /* Entities in the flowing text are underlined — the underline signals that
+     hovering reveals the entity card. */
+  .text-body .entity {
+    border-bottom: var(--rule) solid var(--fg);
+    cursor: help;
+  }
+  /* Link blocks flow as one continuous reading. No borders, no extra padding
+     between passages — just one line-height of breathing room so the meta
+     stays associated with the passage it opens. */
+  .link-block { margin-bottom: 0; }
+  .link-block + .link-block { margin-top: 1.5em; }
+  .link-block .meta {
+    margin: 0 0 4px 0;
+    cursor: pointer;
+  }
+  /* The whole meta line is the hover target; give a subtle indication that
+     it's interactive without making it look like a link. */
+  .link-block .meta:hover { color: var(--fg); }
+
+  /* Tree panel — the wrap starts below the controls band so the top of the
+     tree never sits under the reset/random/expand buttons. */
+  #tree-wrap {
+    position: absolute;
+    top: var(--controls-h); left: 0; right: 0; bottom: 0;
+  }
+  svg { width: 100%; height: 100%; display: block; }
+
+  /* Edges and node stroke widths are derived at render time from the tree
+     density (see computeScale in JS) and injected as CSS variables on the
+     SVG element. --stroke is the default width; in-path elements use 1.5x. */
+  svg { --stroke: 1; }
+
+  svg .edge { stroke: var(--fg); stroke-width: var(--stroke); fill: none; }
+  svg .edge.in-path { stroke-width: calc(var(--stroke) * 1.5); }
+
+  svg .node {
+    stroke: var(--fg);
+    stroke-width: var(--stroke);
+    fill: var(--bg);
+  }
+  svg .node.in-path { stroke-width: calc(var(--stroke) * 1.5); }
+  svg .node.selected { fill: var(--fg); }
+
+  svg .recap-ring {
+    stroke: var(--fg);
+    stroke-width: var(--stroke);
+    fill: none;
+  }
+  svg .recap-ring.in-path { stroke-width: calc(var(--stroke) * 1.5); }
+
+  svg .node-hit { fill: transparent; cursor: pointer; }
+  /* When the user isn't hovering a node, the SVG itself is grabbable for
+     pan. The cursor switches to grabbing via JS during an active drag. */
+  svg { cursor: grab; }
+  svg .node-hit:hover ~ *, svg .node-hit:hover { cursor: pointer; }
+
+  /* --- Expanded modes: one column at a time fills the viewport. The two
+     modes are mutually exclusive (JS toggles make sure of that). */
+  body.expanded .layout,
+  body.tree-expanded .layout {
+    grid-template-columns: 1fr;
+  }
+  body.expanded #tree-panel { display: none; }
+  body.tree-expanded #text-panel { display: none; }
+
+  /* --- Hide-meta mode: a clean reading view. Suppresses the grey link
+     header lines, the entity underlines, and (via JS) the hover tooltip. */
+  body.hide-meta .link-block .meta { display: none; }
+  body.hide-meta .text-body .entity {
+    border-bottom: none;
+    cursor: inherit;
+  }
+
+  /* In expanded mode, the reading column is much wider than it needs to be,
+     so cap the reading width and center it for a comfortable line length. */
+  body.expanded #text-content {
+    max-width: 820px;
+    margin: 0 auto;
+  }
+
+  .empty { /* black like everything else */ }
+
+  /* Entity hover tooltip */
+  #entity-tooltip {
+    position: fixed;
+    background: var(--bg);
+    color: var(--fg);
+    border: var(--rule) solid var(--fg);
+    padding: 8px 10px;
+    max-width: 360px;
+    pointer-events: none;
+    display: none;
+    z-index: 30;
+    line-height: var(--line-height);
+  }
+  #entity-tooltip.visible { display: block; }
+  #entity-tooltip .tip-head { margin-bottom: 4px; }
+  #entity-tooltip .tip-type { color: var(--mute); margin-left: 8px; letter-spacing: 0.04em; }
+
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="title-group">
+    <a class="title" id="title-home" href="index.html">SPRAWL</a>
+    <div class="stats"><span id="stat-writers">–</span>WRITERS &nbsp;&nbsp;<span id="stat-links">–</span>LINKS</div>
+  </div>
+  <nav class="nav-middle">
+    <a href="authors.html">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html">ARCS</a>
+    <input id="search" type="text" placeholder="#" spellcheck="false" autocomplete="off">
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<div class="layout">
+  <section class="panel" id="text-panel">
+    <div class="panel-controls panel-controls-left" id="text-path-stats"></div>
+    <div class="panel-controls">
+      <a id="toggle-meta"   class="ctl" title="toggle link info">INFO</a>
+      <span class="ctl-sep">/</span>
+      <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
+    </div>
+    <div class="panel-scroll">
+      <div id="text-content" class="empty">loading…</div>
+    </div>
+  </section>
+
+  <section class="panel" id="tree-panel">
+    <div class="panel-controls panel-controls-left">
+      <a id="reset-view"  class="ctl" title="reset view">RESET</a>
+      <span class="ctl-sep">/</span>
+      <a id="random-link" class="ctl" title="jump to a random link">RANDOM</a>
+    </div>
+    <div class="panel-controls panel-controls-center" id="tree-node-info"></div>
+    <div class="panel-controls">
+      <a id="toggle-tree-expand" class="ctl" title="toggle tree fullscreen">EXPAND</a>
+    </div>
+    <div id="tree-wrap">
+      <svg id="tree-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMin meet"></svg>
+    </div>
+  </section>
+
+</div>
+
+<div id="entity-tooltip"></div>
+
+
+<script src="sprawl-data.js"></script>
+<script>
+(() => {
+  // --- State ---
+  // selectedId is the link the user clicked. hoverId is which meta line is
+  // currently hovered. view is the SVG viewBox rectangle (for zoom/pan).
+  // nodePositions caches the xy pixel position of each rendered node so the
+  // framing / zoom code doesn't have to re-layout.
+  const state = {
+    links: [],
+    byId: {},
+    childrenByParent: {},   // parentId → sorted children (for keyboard nav)
+    entities: [],
+    entitiesById: {},
+    selectedId: null,
+    hoverId: null,
+    view: { x: 0, y: 0, w: 0, h: 0 },
+    nodePositions: {},
+  };
+
+  // How many ancestors to frame after a click. The user can wheel-zoom out to
+  // see the whole tree, or wheel-zoom in closer.
+  const AUTO_FRAME_COUNT = 15;
+
+  // Breathing room around the tree in full-tree view. Used by frameFullTree
+  // and by the wheel-zoom cap so the max zoom-out matches the load view.
+  const FULL_TREE_PAD = 16;
+
+  // --- Data loading (hybrid: AWS API for off-chain content, Goldsky for
+  // citizen names and on-chain state). Normalizes API data into the
+  // subgraph-shape the rest of this page expects.
+  async function loadAll() {
+    const [linksResp, entsResp, citizens] = await Promise.all([
+      SprawlAPI.recentLinks(2000),
+      SprawlAPI.entities(1000),
+      SprawlGraph.citizens(1000),
+    ]);
+    const rawLinks = (linksResp && linksResp.items) || [];
+    const rawEnts  = (entsResp  && entsResp.items)  || [];
+    const citById  = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c]));
+
+    // Reshape each link into the legacy "subgraph" shape so the rendering
+    // code below works unchanged.
+    const reshape = (l) => {
+      const addr = (l.author || "").toLowerCase();
+      const cit  = citById[addr];
+      const parentId = String(l.parentId || "0");
+      // Genesis (id "0") has no parent; its own parentId is "0" by convention.
+      // Also tolerate the legacy "0x0" in case old data lingers.
+      const hasParent = l.linkId !== "0" && parentId !== "0" && parentId !== "0x0";
+      return {
+        id:          String(l.linkId),
+        text:        l.text || "",
+        isRecap:     !!l.isRecap,
+        voteCount:   l.voteCount || 0,
+        blockNumber: l.createdAt || l.authoredAt || 0,
+        timestamp:   l.authoredAt || 0,
+        cleared:     !!l.cleared,
+        parent:      hasParent ? { id: parentId } : null,
+        author:      { id: addr, name: cit ? cit.name : "" },
+      };
+    };
+    const allLinks = rawLinks.map(reshape);
+
+    // Recaps hidden from the UI; if a non-recap's parent is a recap,
+    // pass through to the recap's own parent so the tree stays connected.
+    const allById = Object.fromEntries(allLinks.map(l => [l.id, l]));
+    const effectiveParent = (link) => {
+      let p = link.parent ? allById[link.parent.id] : null;
+      while (p && p.isRecap) {
+        p = p.parent ? allById[p.parent.id] : null;
+      }
+      return p ? { id: p.id } : null;
+    };
+    state.links = allLinks
+      .filter(l => !l.isRecap)
+      .map(l => ({ ...l, parent: effectiveParent(l) }));
+    state.byId = Object.fromEntries(state.links.map(l => [l.id, l]));
+
+    // Entities normalized to subgraph shape (just id/name/type/description/creator).
+    state.entities = rawEnts.map(e => {
+      const addr = (e.creator || "").toLowerCase();
+      const cit  = citById[addr];
+      return {
+        id:          e.entityId,
+        name:        e.name,
+        entityType:  e.entityType,
+        description: e.description,
+        creator:     { id: addr, name: cit ? cit.name : "" },
+      };
+    });
+    state.entitiesById = Object.fromEntries(state.entities.map(e => [e.id, e]));
+
+    // Build parent → children map for O(1) keyboard navigation lookups.
+    state.childrenByParent = {};
+    for (const l of state.links) {
+      const pid = l.parent ? l.parent.id : "__root__";
+      if (!state.childrenByParent[pid]) state.childrenByParent[pid] = [];
+      state.childrenByParent[pid].push(l);
+    }
+    for (const k in state.childrenByParent) {
+      state.childrenByParent[k].sort((a, b) => Number(a.id) - Number(b.id));
+    }
+  }
+
+
+  // --- Tree construction and layout ---
+  function buildTree() {
+    const nodes = {};
+    for (const l of state.links) nodes[l.id] = { ...l, children: [] };
+    let root = null;
+    for (const l of state.links) {
+      const node = nodes[l.id];
+      if (l.parent) nodes[l.parent.id].children.push(node);
+      else root = node;
+    }
+    // Sort children by id so layout is stable.
+    const sort = (n) => {
+      n.children.sort((a, b) => Number(a.id) - Number(b.id));
+      n.children.forEach(sort);
+    };
+    if (root) sort(root);
+    return root;
+  }
+
+  // Compute subtree widths (in tip-units), then x positions.
+  function layoutTree(root) {
+    const width = (n) => {
+      if (!n.children.length) { n.width = 1; return 1; }
+      let w = 0;
+      for (const c of n.children) w += width(c);
+      n.width = w;
+      return w;
+    };
+    const assign = (n, depth, startX) => {
+      n.depth = depth;
+      if (!n.children.length) { n.x = startX + 0.5; return; }
+      let cursor = startX;
+      for (const c of n.children) {
+        assign(c, depth + 1, cursor);
+        cursor += c.width;
+      }
+      n.x = (n.children[0].x + n.children[n.children.length - 1].x) / 2;
+    };
+    width(root);
+    assign(root, 0, 0);
+    return root;
+  }
+
+  function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+  function flatten(root) {
+    const nodes = [], edges = [];
+    const walk = (n) => {
+      nodes.push(n);
+      for (const c of n.children) { edges.push([n, c]); walk(c); }
+    };
+    walk(root);
+    return { nodes, edges };
+  }
+
+  function renderTree() {
+    if (!state.links.length) return;
+    const root = layoutTree(buildTree());
+    const { nodes, edges } = flatten(root);
+
+    const svg = document.getElementById("tree-svg");
+    const rect = svg.getBoundingClientRect();
+    const W = Math.max(100, rect.width);
+    const H = Math.max(100, rect.height);
+
+    const treeWidth = root.width;
+    const maxDepth = Math.max(...nodes.map(n => n.depth));
+    const mx = 8, my = 8;
+    const availW = Math.max(1, W - 2 * mx);
+    const availH = Math.max(1, H - 2 * my);
+
+    const xToPx = (x) => {
+      if (treeWidth <= 1) return W / 2;
+      // x is in [0.5 .. treeWidth - 0.5]; normalize.
+      return mx + ((x - 0.5) / (treeWidth - 1)) * availW;
+    };
+    const yToPx = (d) => {
+      if (maxDepth === 0) return my;
+      return my + (d / maxDepth) * availH;
+    };
+
+    // Density-adaptive scaling: as tips pack more tightly (smaller viewport
+    // or bigger tree), circles shrink and lines get thinner, keeping the tree
+    // legible without visual crowding.
+    const colSpacing = treeWidth > 1 ? availW / (treeWidth - 1) : availW;
+    const rowSpacing = maxDepth > 0 ? availH / maxDepth : availH;
+    const minSpacing = Math.min(colSpacing, rowSpacing);
+    const nodeR = clamp(minSpacing * 0.09, 1.2, 5);
+    state.nodeR = nodeR;   // stored so updateTreeSelection can size the highlighted node
+    const strokeW = clamp(minSpacing * 0.022, 0.4, 1.2);
+    svg.style.setProperty("--stroke", strokeW);
+
+    // Clear. The viewBox will be set by frameFullTree / frameAncestors; we
+    // just remember the rendered pixel size so those framers can compute a
+    // sensible default.
+    state.nodePositions = {};
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const NS = "http://www.w3.org/2000/svg";
+
+    // Edges. dataset.child = the child id, so the selection-update pass can
+    // toggle .in-path without touching layout.
+    for (const [p, c] of edges) {
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("x1", xToPx(p.x));
+      line.setAttribute("y1", yToPx(p.depth));
+      line.setAttribute("x2", xToPx(c.x));
+      line.setAttribute("y2", yToPx(c.depth));
+      line.setAttribute("class", "edge");
+      line.dataset.child = c.id;
+      svg.appendChild(line);
+    }
+
+    // Nodes
+    for (const n of nodes) {
+      const cx = xToPx(n.x), cy = yToPx(n.depth);
+      state.nodePositions[n.id] = { x: cx, y: cy };
+
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", cx); c.setAttribute("cy", cy);
+      c.setAttribute("r", nodeR);
+      c.setAttribute("class", "node");
+      c.dataset.id = n.id;
+      const title = document.createElementNS(NS, "title");
+      title.textContent = `link ${n.id} | by ${n.author.name} | ${n.voteCount}`;
+      c.appendChild(title);
+      svg.appendChild(c);
+
+      // Large transparent hit-target for easier clicking (rendered last so
+      // pointer events hit it first). Sized generously but capped so
+      // neighbouring hits never overlap even when nodes are dense.
+      const hit = document.createElementNS(NS, "circle");
+      hit.setAttribute("cx", cx); hit.setAttribute("cy", cy);
+      hit.setAttribute("r", Math.max(nodeR + 2, Math.min(18, minSpacing * 0.45)));
+      hit.setAttribute("class", "node-hit");
+      hit.dataset.id = n.id;
+      hit.addEventListener("click", (ev) => {
+        // Suppress the click that follows a pan drag.
+        if (dragJustHappened) { dragJustHappened = false; ev.stopPropagation(); return; }
+        selectLink(n.id);
+      });
+      svg.appendChild(hit);
+    }
+
+    // Store the rendered pixel size for framers.
+    state.viewPx = { w: W, h: H };
+    updateTreeSelection();
+  }
+
+  // -----------------------------------------------------------------------
+  // Zoom / pan via SVG viewBox
+  // -----------------------------------------------------------------------
+  function applyViewBox() {
+    const svg = document.getElementById("tree-svg");
+    if (!svg) return;
+    const v = state.view;
+    svg.setAttribute("viewBox", `${v.x} ${v.y} ${v.w} ${v.h}`);
+  }
+
+  function frameFullTree() {
+    const vp = state.viewPx || { w: 800, h: 600 };
+    // A bit of viewBox padding around the tree so it isn't flush with the
+    // panel edges (compensates for the tighter SVG margins we use to keep
+    // the zoomed-in views from feeling cropped).
+    const pad = FULL_TREE_PAD;
+    state.view = {
+      x: -pad,
+      y: -pad,
+      w: vp.w + 2 * pad,
+      h: vp.h + 2 * pad,
+    };
+    applyViewBox();
+  }
+
+  function frameAncestors(count) {
+    if (!state.selectedId) return frameFullTree();
+    const path = ancestryOf(state.selectedId);
+    const slice = path.slice(-count);
+    const positions = slice
+      .map(l => state.nodePositions[l.id])
+      .filter(Boolean);
+    if (positions.length < 1) return frameFullTree();
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of positions) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    // Natural bounds with padding. Small padTop places the oldest node near
+    // the top of the visible area (not pinned, but close).
+    const padX = 25, padTop = 20, padBottom = 30;
+    let w = Math.max(200, (maxX - minX) + 2 * padX);
+    let h = Math.max(200, (maxY - minY) + padTop + padBottom);
+
+    // Match the viewBox aspect ratio to the viewport's. This eliminates
+    // letterboxing, so the oldest node always appears exactly `padTop` units
+    // below the top of the visible area.
+    const vp = state.viewPx || { w: 800, h: 600 };
+    const vpAspect = vp.w / vp.h;
+    if (w / h > vpAspect) {
+      h = w / vpAspect;       // grow height to match
+    } else {
+      w = h * vpAspect;       // grow width to match
+    }
+
+    // Center on the ancestry's horizontal midpoint; anchor the top so the
+    // oldest node sits padTop below the viewBox top.
+    const centerX = (minX + maxX) / 2;
+    state.view = {
+      x: centerX - w / 2,
+      y: minY - padTop,
+      w,
+      h,
+    };
+    applyViewBox();
+  }
+
+  // -----------------------------------------------------------------------
+  // Mouse interactions on the tree: wheel to zoom, drag to pan. Set up once.
+  // -----------------------------------------------------------------------
+  let dragLast = null;
+  let dragMoved = false;
+  let dragJustHappened = false;
+
+  function bindTreeInteractions() {
+    const svg = document.getElementById("tree-svg");
+    if (!svg) return;
+
+    // Wheel → zoom around the cursor.
+    svg.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const mx = ((e.clientX - rect.left) / rect.width)  * state.view.w + state.view.x;
+      const my = ((e.clientY - rect.top)  / rect.height) * state.view.h + state.view.y;
+      const factor = Math.exp(e.deltaY * 0.0015);
+      // Clamp zoom. The zoomed-out cap matches the initial full-tree view
+      // exactly (including its padding), so manual zoom-out and page-load
+      // view are flush. Zoom-in stays free up to ~20× closer.
+      const fullW = state.viewPx ? state.viewPx.w : 800;
+      const loadW = fullW + 2 * FULL_TREE_PAD;
+      const minW = fullW * 0.05;
+      const maxW = loadW;
+      let newW = state.view.w * factor;
+      if (newW < minW) newW = minW;
+      if (newW > maxW) newW = maxW;
+      const actualFactor = newW / state.view.w;
+      state.view.x = mx - (mx - state.view.x) * actualFactor;
+      state.view.y = my - (my - state.view.y) * actualFactor;
+      state.view.w = state.view.w * actualFactor;
+      state.view.h = state.view.h * actualFactor;
+      applyViewBox();
+    }, { passive: false });
+
+    // Drag → pan. We track on window so the drag doesn't die when the cursor
+    // briefly leaves the SVG area.
+    svg.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      dragLast = { x: e.clientX, y: e.clientY };
+      dragMoved = false;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragLast) return;
+      const dx = e.clientX - dragLast.x;
+      const dy = e.clientY - dragLast.y;
+      dragLast = { x: e.clientX, y: e.clientY };
+      if (!dragMoved && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) {
+        dragMoved = true;
+        svg.style.cursor = "grabbing";
+      }
+      if (dragMoved) {
+        const rect = svg.getBoundingClientRect();
+        const scale = state.view.w / rect.width;
+        state.view.x -= dx * scale;
+        state.view.y -= dy * scale;
+        applyViewBox();
+      }
+    });
+    window.addEventListener("mouseup", () => {
+      if (dragMoved) {
+        dragJustHappened = true;
+        svg.style.cursor = "";
+      }
+      dragLast = null;
+      dragMoved = false;
+    });
+  }
+
+  // Classlist-only update. The filled node follows hoverId when set,
+  // otherwise it's the clicked selectedId. The thicker stroke runs along the
+  // branch from genesis to selectedId (hover never changes the path).
+  function updateTreeSelection() {
+    const svg = document.getElementById("tree-svg");
+    if (!svg) return;
+    const ancestryIds = new Set(
+      ancestryOf(state.selectedId).map(l => l.id)
+    );
+    const highlightId = state.hoverId || state.selectedId;
+    const r = state.nodeR || 4;
+    svg.querySelectorAll("circle.node").forEach(el => {
+      const id = el.dataset.id;
+      const inPath = ancestryIds.has(id);
+      const isSelected = id === highlightId;
+      el.classList.toggle("in-path", inPath);
+      el.classList.toggle("selected", isSelected);
+      // Every node along the selected path is 1.5x baseline (the selected
+      // node is also filled). Off-path nodes stay at baseline size.
+      el.setAttribute("r", (inPath || isSelected) ? r * 1.5 : r);
+    });
+    svg.querySelectorAll("circle.recap-ring").forEach(el => {
+      el.classList.toggle("in-path", ancestryIds.has(el.dataset.id));
+    });
+    svg.querySelectorAll("line.edge").forEach(el => {
+      el.classList.toggle("in-path", ancestryIds.has(el.dataset.child));
+    });
+    updateTreeNodeInfo(highlightId);
+    updatePathStats();
+  }
+
+  // Readout on the left of the text panel's control row: how many links
+  // the current path contains and how many distinct authors wrote them.
+  function updatePathStats() {
+    const el = document.getElementById("text-path-stats");
+    if (!el) return;
+    if (!state.selectedId) { el.textContent = ""; return; }
+    const path = ancestryOf(state.selectedId);
+    const authors = new Set(path.map(l => l.author.id));
+    const linkWord   = path.length  === 1 ? "LINK"   : "LINKS";
+    const authorWord = authors.size === 1 ? "AUTHOR" : "AUTHORS";
+    el.textContent = `${path.length} ${linkWord} | ${authors.size} ${authorWord}`;
+  }
+
+  // The center readout on the tree panel's top row: just the current
+  // link id, quiet and unobtrusive.
+  function updateTreeNodeInfo(id) {
+    const bar = document.getElementById("tree-node-info");
+    if (!bar) return;
+    const link = state.byId[id];
+    bar.textContent = link ? "#" + link.id : "";
+  }
+
+  // Find the tip whose ancestry back to genesis is longest. Ties broken by
+  // highest id. Used as the default selection on initial page load so the
+  // reader sees the deepest coherent storyline first.
+  function findLongestBranchTip() {
+    if (!state.links.length) return null;
+    const hasChild = new Set();
+    for (const l of state.links) {
+      if (l.parent) hasChild.add(l.parent.id);
+    }
+    const tips = state.links.filter(l => !hasChild.has(l.id));
+    if (!tips.length) return state.links[state.links.length - 1];
+    let best = tips[0];
+    let bestDepth = -1;
+    for (const tip of tips) {
+      const depth = ancestryOf(tip.id).length;
+      if (depth > bestDepth || (depth === bestDepth && Number(tip.id) > Number(best.id))) {
+        bestDepth = depth;
+        best = tip;
+      }
+    }
+    return best;
+  }
+
+  // --- Ancestry + entity extraction ---
+  function ancestryOf(id) {
+    const path = [];
+    let cur = state.byId[id];
+    while (cur) {
+      path.push(cur);
+      cur = cur.parent ? state.byId[cur.parent.id] : null;
+    }
+    return path.reverse();
+  }
+
+  const ENTITY_RE = /\[([a-z0-9-]+)\]/g;
+  const ARC_RE    = /\{([a-z0-9-]+)\}/g;
+
+  function entityIdsInText(text) {
+    const out = new Set();
+    let m;
+    while ((m = ENTITY_RE.exec(text)) !== null) out.add(m[1]);
+    return [...out];
+  }
+
+  function entityIdsInBranch(id) {
+    const path = ancestryOf(id);
+    const corpus = path.map(l => l.cleared ? "" : l.text).join("\n");
+    return entityIdsInText(corpus);
+  }
+
+  // --- Rendering: text + entities ---
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, ch => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+    ));
+  }
+
+  // Resolve an entity tag tolerantly: try exact id, then with "the-" prefix
+  // stripped (so `[the-bell]` finds `bell`), then with "the-" added (so
+  // `[bell]` finds `the-bell`). Early seed entries got this wrong; this keeps
+  // the reader from seeing raw brackets when the author's intent is clear.
+  function resolveEntity(id) {
+    if (state.entitiesById[id]) return state.entitiesById[id];
+    if (id.startsWith("the-")) {
+      const alt = state.entitiesById[id.slice(4)];
+      if (alt) return alt;
+    } else {
+      const alt = state.entitiesById["the-" + id];
+      if (alt) return alt;
+    }
+    return null;
+  }
+
+  // Does this offset fall at the start of a sentence? Used to decide whether
+  // to keep "The" capitalized on a display name that begins with an article.
+  function isSentenceStart(text, offset) {
+    let i = offset - 1;
+    while (i >= 0 && /[ \t]/.test(text[i])) i--;
+    if (i < 0) return true;
+    return /[.!?\n]/.test(text[i]);
+  }
+
+  function renderLinkText(rawText) {
+    if (!rawText) return "";
+    let t = escapeHtml(rawText);
+
+    // Arc tags: strip entirely (sentence-level coordination, not narration).
+    t = t.replace(/\{[a-z0-9-]+\}\s*/g, "");
+
+    // Entity tags work in two modes. Attached mode first: a word immediately
+    // followed by `[id]` means "this word refers to <id>". Keep the word,
+    // strip the bracket, attach the id as metadata.
+    t = t.replace(/(\w+)\[([a-z0-9-]+)\]/g, (m, word, id) => {
+      return `<span class="entity" data-entity="${id}">${word}</span>`;
+    });
+
+    // Standalone mode: a bare `[id]` with no preceding word is replaced by
+    // the entity's display name. If the name starts with "The " and we are
+    // mid-sentence, lowercase it so the passage reads naturally.
+    t = t.replace(/\[([a-z0-9-]+)\]/g, (m, id, offset) => {
+      const e = resolveEntity(id);
+      if (!e) return m;
+      let name = e.name;
+      if (/^The /.test(name) && !isSentenceStart(t, offset)) {
+        name = "the " + name.slice(4);
+      }
+      return `<span class="entity" data-entity="${id}">${escapeHtml(name)}</span>`;
+    });
+
+    return t;
+  }
+
+  function renderText() {
+    const id = state.selectedId;
+    const target = document.getElementById("text-content");
+    // Drop any min-height left over from a previous prefix-truncation click.
+    target.style.minHeight = "";
+    if (!id) { target.innerHTML = '<div class="empty">no link selected</div>'; return; }
+
+    // Render the entire ancestry from genesis to the selected link — like
+    // opening a book at a page, with all prior pages available above.
+    const path = ancestryOf(id);
+    target.innerHTML = path.map(link => {
+      // Author name links to their profile. onclick stop-prop so clicking the
+      // name doesn't also re-select the current link via the meta-line handler.
+      const authorHref = "author.html?addr=" + encodeURIComponent(link.author.id);
+      const authorHtml = `<a href="${authorHref}" onclick="event.stopPropagation()">${escapeHtml(link.author.name.toUpperCase())}</a>`;
+      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}`;
+      const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
+      const selected = link.id === id ? " selected" : "";
+      return `<div class="link-block${selected}" data-id="${link.id}">
+        <div class="meta">${meta}</div>
+        <div class="text-body">${body}</div>
+      </div>`;
+    }).join("");
+
+    // Scroll the selected (latest in the path) into view.
+    const selected = target.querySelector(".link-block.selected");
+    if (selected) selected.scrollIntoView({ block: "start", behavior: "instant" });
+
+    bindTextHover();
+  }
+
+  // Entities are no longer listed in a side panel — they're revealed via a
+  // hover tooltip on the underlined references in the text. The plain-text
+  // helper below renders an entity description with tags stripped / display
+  // names substituted, so the tooltip doesn't show brackets or create nested
+  // hoverable elements.
+  function entityDescriptionPlain(text) {
+    if (!text) return "";
+    let t = text;
+    t = t.replace(/\{[a-z0-9-]+\}\s*/g, "");
+    t = t.replace(/(\w+)\[[a-z0-9-]+\]/g, (m, word) => word);
+    t = t.replace(/\[([a-z0-9-]+)\]/g, (m, id) => {
+      const e = resolveEntity(id);
+      return e ? e.name : m;
+    });
+    return t;
+  }
+
+  // --- Interaction ---
+  // opts:
+  //   updateHash     — write the new selection to the URL hash (default true)
+  //   preserveScroll — the clicked link is already rendered as an ancestor
+  //                    in the text column; instead of rebuilding innerHTML,
+  //                    remove the link-blocks below it and flip .selected.
+  //                    Everything above the clicked block stays in place at
+  //                    the pixel, so no scroll math is needed.
+  function selectLink(id, opts) {
+    opts = opts || {};
+    const newId = String(id);
+
+    // Prefix-truncate path: when the click came from a meta line in the text
+    // column, the clicked link is guaranteed to be an ancestor of the current
+    // selection, i.e. already rendered in the DOM. Rather than rebuilding the
+    // whole text column (which reflows everything and makes scroll math
+    // fragile), just delete the link-blocks that come after it and flip the
+    // .selected class. The DOM above the clicked block doesn't move a pixel.
+    const textContent = document.getElementById("text-content");
+    const scroller = document.querySelector("#text-panel .panel-scroll");
+    const targetBlock = textContent && textContent.querySelector(`.link-block[data-id="${CSS.escape(newId)}"]`);
+    if (opts.preserveScroll && targetBlock && scroller) {
+      // Before removing content below the clicked block, hold the scroll
+      // container's height at (scrollTop + clientHeight) so that removing
+      // nodes can't make scrollHeight smaller than the current scrollTop +
+      // viewport — which would cause the browser to clamp scrollTop and
+      // shift every block above into a different on-screen position.
+      const keepHeight = scroller.scrollTop + scroller.clientHeight;
+      textContent.style.minHeight = keepHeight + "px";
+
+      let sib = targetBlock.nextElementSibling;
+      while (sib) {
+        const next = sib.nextElementSibling;
+        sib.remove();
+        sib = next;
+      }
+      const prevSel = textContent.querySelector(".link-block.selected");
+      if (prevSel && prevSel !== targetBlock) prevSel.classList.remove("selected");
+      targetBlock.classList.add("selected");
+
+      state.selectedId = newId;
+      state.hoverId = null;
+      updateTreeSelection();
+      if (!document.body.classList.contains("tree-expanded")) {
+        frameAncestors(AUTO_FRAME_COUNT);
+      }
+
+      if (opts.updateHash !== false) {
+        const t = "#link-" + state.selectedId;
+        if (location.hash !== t) history.replaceState(null, "", t);
+      }
+      return;
+    }
+
+    state.selectedId = newId;
+    state.hoverId = null;
+    updateTreeSelection();
+    if (!document.body.classList.contains("tree-expanded")) {
+      frameAncestors(AUTO_FRAME_COUNT);
+    }
+    renderText({});
+
+    if (opts.updateHash !== false) {
+      const target = "#link-" + state.selectedId;
+      if (location.hash !== target) history.replaceState(null, "", target);
+    }
+  }
+
+  // Deep-link parser. Accepts "#link-N" where N is a digit string.
+  function parseLinkHash() {
+    const m = /^#link-(\d+)$/.exec(location.hash || "");
+    return m ? m[1] : null;
+  }
+
+  // --- Search bar (top bar) ---
+  function bindSearch() {
+    const input = document.getElementById("search");
+    if (!input) return;
+    input.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const raw = input.value.trim().replace(/^#/, "");
+      if (!/^\d+$/.test(raw)) return;
+      if (!state.byId[raw]) {
+        input.value = "";
+        return;
+      }
+      selectLink(raw);
+      input.value = "";
+      input.blur();
+    });
+  }
+
+  // --- Keyboard shortcuts ---
+  // Arrow keys: Up = parent, Down = first child, Left/Right = sibling.
+  // Skip when the user is typing in an input/textarea.
+  function bindKeyboardShortcuts() {
+    document.addEventListener("keydown", (e) => {
+      const t = e.target;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+      if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+
+      const cur = state.byId[state.selectedId];
+      if (!cur) return;
+
+      let nextId = null;
+
+      if (e.key === "ArrowUp") {
+        if (cur.parent) nextId = cur.parent.id;
+      } else if (e.key === "ArrowDown") {
+        const kids = state.childrenByParent[cur.id] || [];
+        if (kids.length) nextId = kids[0].id;
+      } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        const pid = cur.parent ? cur.parent.id : "__root__";
+        const sibs = state.childrenByParent[pid] || [];
+        const idx = sibs.findIndex(s => s.id === cur.id);
+        if (idx !== -1) {
+          const delta = e.key === "ArrowLeft" ? -1 : 1;
+          const nb = sibs[idx + delta];
+          if (nb) nextId = nb.id;
+        }
+      }
+
+      if (nextId !== null) {
+        e.preventDefault();
+        selectLink(nextId);
+      }
+    });
+  }
+
+  // After text render, wire hover + click on each meta line. Hover lights up
+  // the corresponding tree node; clicking is equivalent to clicking that
+  // node in the tree — it becomes the tip of the displayed ancestry.
+  function bindTextHover() {
+    const scroller = document.querySelector("#text-panel .panel-scroll");
+    if (!scroller) return;
+    scroller.querySelectorAll(".link-block > .meta").forEach(el => {
+      const id = el.parentElement.dataset.id;
+      el.addEventListener("mouseenter", () => {
+        state.hoverId = id;
+        updateTreeSelection();
+      });
+      el.addEventListener("mouseleave", () => {
+        state.hoverId = null;
+        updateTreeSelection();
+      });
+      // In-text clicks are always a prefix truncation of the current path
+      // — preserve scroll so the clicked link stays in place and the
+      // content below it drops away.
+      el.addEventListener("click", () => selectLink(id, { preserveScroll: true }));
+    });
+  }
+
+  // Single entity-tooltip bound once at boot. Uses event delegation on the
+  // scroll container so newly-rendered passages don't need re-binding.
+  function bindEntityTooltip() {
+    const tooltip = document.getElementById("entity-tooltip");
+    const scroller = document.querySelector("#text-panel .panel-scroll");
+    if (!tooltip || !scroller) return;
+
+    scroller.addEventListener("mouseover", (e) => {
+      // Clean reading mode suppresses the tooltip along with the underlines
+      // and meta lines.
+      if (document.body.classList.contains("hide-meta")) return;
+      const span = e.target.closest(".entity[data-entity]");
+      if (!span || !scroller.contains(span)) return;
+      const ent = resolveEntity(span.dataset.entity);
+      if (!ent) return;
+      tooltip.innerHTML = `
+        <div class="tip-head">${escapeHtml(ent.name)}<span class="tip-type">(${escapeHtml(ent.entityType)})</span></div>
+        <div class="tip-desc">${escapeHtml(entityDescriptionPlain(ent.description || ""))}</div>
+      `;
+      // Position below the span, aligned to its left. Clamp horizontally so
+      // it never runs off the viewport.
+      const rect = span.getBoundingClientRect();
+      tooltip.classList.add("visible");
+      const tipRect = tooltip.getBoundingClientRect();
+      let left = rect.left;
+      if (left + tipRect.width > window.innerWidth - 8) {
+        left = Math.max(8, window.innerWidth - tipRect.width - 8);
+      }
+      tooltip.style.left = left + "px";
+      tooltip.style.top = (rect.bottom + 6) + "px";
+    });
+
+    scroller.addEventListener("mouseout", (e) => {
+      const span = e.target.closest(".entity[data-entity]");
+      if (!span) return;
+      tooltip.classList.remove("visible");
+    });
+
+    // Hide on scroll so the tooltip doesn't linger detached from its span.
+    scroller.addEventListener("scroll", () => tooltip.classList.remove("visible"));
+  }
+
+  // --- Panel controls (info toggle, expand toggle) ---
+  function bindPanelControls() {
+    const metaBtn = document.getElementById("toggle-meta");
+    const expandBtn = document.getElementById("toggle-expand");
+    if (metaBtn) {
+      metaBtn.addEventListener("click", () => {
+        document.body.classList.toggle("hide-meta");
+      });
+    }
+    if (expandBtn) {
+      expandBtn.addEventListener("click", () => {
+        document.body.classList.remove("tree-expanded");
+        const nowExpanded = document.body.classList.toggle("expanded");
+        expandBtn.textContent = nowExpanded ? "COLLAPSE" : "EXPAND";
+        // Tree has new dimensions on return; re-layout next frame.
+        requestAnimationFrame(renderTree);
+      });
+    }
+
+    // The reset behavior: longest-branch tip, full-tree view, clean URL.
+    // Shared between the reset button and the SPRAWL title.
+    function resetToHome() {
+      selectLink(findLongestBranchTip().id, { updateHash: false });
+      frameFullTree();
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+
+    const resetBtn = document.getElementById("reset-view");
+    if (resetBtn) resetBtn.addEventListener("click", resetToHome);
+
+    const titleHome = document.getElementById("title-home");
+    if (titleHome) {
+      titleHome.addEventListener("click", (e) => {
+        // On the main page itself we don't want to reload — just reset. From
+        // any other page, the href="index.html" does its normal navigation.
+        e.preventDefault();
+        resetToHome();
+      });
+    }
+
+    const randomBtn = document.getElementById("random-link");
+    if (randomBtn) {
+      randomBtn.addEventListener("click", () => {
+        if (!state.links.length) return;
+        const pick = state.links[Math.floor(Math.random() * state.links.length)];
+        selectLink(pick.id);
+      });
+    }
+
+    const treeExpandBtn = document.getElementById("toggle-tree-expand");
+    if (treeExpandBtn) {
+      treeExpandBtn.addEventListener("click", () => {
+        document.body.classList.remove("expanded");
+        const nowExpanded = document.body.classList.toggle("tree-expanded");
+        treeExpandBtn.textContent = nowExpanded ? "COLLAPSE" : "EXPAND";
+        // Also reset the other expand button — leaving this mode implies the
+        // other column wasn't expanded either.
+        if (expandBtn) expandBtn.textContent = "EXPAND";
+        // Entering fullscreen tree: show the whole tree, same as page load.
+        // Leaving: return to the zoomed-in ancestry view.
+        requestAnimationFrame(() => {
+          renderTree();
+          if (nowExpanded) frameFullTree();
+          else if (state.selectedId) frameAncestors(AUTO_FRAME_COUNT);
+        });
+      });
+    }
+  }
+
+
+  // --- Theme toggle ---
+  (function setupTheme() {
+    const btn = document.getElementById("theme-toggle");
+    if (!btn) return;
+    const sync = () => {
+      btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK";
+    };
+    sync();
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const next = !document.documentElement.classList.contains("dark");
+      document.documentElement.classList.toggle("dark", next);
+      try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+      sync();
+    });
+  })();
+
+  // --- Boot ---
+  (async () => {
+    bindPanelControls();
+    bindTreeInteractions();
+    bindEntityTooltip();
+    bindSearch();
+    bindKeyboardShortcuts();
+    window.addEventListener("hashchange", () => {
+      const id = parseLinkHash();
+      if (id && state.byId[id]) selectLink(id);
+    });
+    try {
+      await loadAll();
+    } catch (e) {
+      document.getElementById("text-content").innerHTML =
+        `<div class="empty">could not load: ${escapeHtml(e.message)}</div>`;
+      return;
+    }
+    // Update stats in the top bar. "writers" = unique authors visible on the
+    // tree (recaps already filtered out). "links" = total visible links.
+    const writers = new Set(state.links.map(l => l.author.id)).size;
+    const linkCount = state.links.length;
+    document.getElementById("stat-writers").textContent = writers;
+    document.getElementById("stat-links").textContent = linkCount;
+
+    renderTree();
+    // If the URL carries a valid deep-link, honor it and auto-zoom to the
+    // ancestry. Otherwise open at the longest branch tip, zoomed all the way
+    // out so the reader sees the whole tree first. Either way, we do NOT
+    // write to the URL hash on boot — a clean URL stays clean on reload.
+    const hashed = parseLinkHash();
+    if (hashed && state.byId[hashed]) {
+      selectLink(hashed, { updateHash: false });
+    } else {
+      selectLink(findLongestBranchTip().id, { updateHash: false });
+      frameFullTree();
+    }
+    window.addEventListener("resize", () => {
+      renderTree();
+      if (document.body.classList.contains("tree-expanded")) {
+        frameFullTree();
+      } else if (state.selectedId) {
+        frameAncestors(AUTO_FRAME_COUNT);
+      }
+    });
+  })();
+})();
+</script>
+</body>
+</html>

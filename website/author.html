@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprawl — Author</title>
+<script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  :root {
+    --fg: #000; --bg: #fff; --mute: #888;
+    --rule: 1px; --pad: 12px; --topbar-h: 44px;
+    --font-size: 13px; --line-height: 1.5;
+  }
+  html.dark { --fg: #fff; --bg: #000; }
+  * { box-sizing: border-box; font-size: inherit; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size); line-height: var(--line-height);
+    min-height: 100%;
+  }
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg); background: var(--bg);
+    z-index: 20;
+  }
+  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar nav { display: flex; gap: 18px; }
+  .topbar nav.nav-middle { justify-self: center; }
+  .topbar nav.nav-right  { justify-self: end; }
+  .topbar nav a.active { text-decoration: underline; }
+
+  main {
+    max-width: 820px; margin: 0 auto;
+    padding: calc(var(--topbar-h) + 24px) var(--pad) 48px;
+  }
+  h2 {
+    margin: 0 0 4px 0;
+    font-size: var(--font-size); font-weight: normal;
+    letter-spacing: 0.08em;
+  }
+  h3 {
+    margin: 32px 0 12px 0;
+    font-size: var(--font-size); font-weight: normal;
+    letter-spacing: 0.08em;
+  }
+  .addr { margin-bottom: 28px; letter-spacing: 0.04em; }
+  .addr .line { }
+  .banned-tag { color: var(--fg); }
+
+  .counts { margin-bottom: 20px; }
+  .counts .row { display: flex; gap: 8px; }
+  .counts .k   { letter-spacing: 0.04em; }
+
+  .link-row { margin-bottom: 14px; }
+  .link-row .head { color: var(--mute); letter-spacing: 0.04em; }
+  .link-row .body { margin-top: 2px; overflow-wrap: anywhere; }
+
+  .entity-row, .arc-row { margin-bottom: 14px; }
+  .entity-row .head, .arc-row .head { letter-spacing: 0.04em; }
+  .entity-row .desc, .arc-row .desc { margin-top: 2px; color: var(--fg); }
+  .entity-row .sub,  .arc-row .sub  { margin-top: 2px; color: var(--mute); letter-spacing: 0.04em; }
+
+  .votes-line { color: var(--fg); overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="title" href="index.html">SPRAWL</a>
+  <nav class="nav-middle">
+    <a href="authors.html" class="active">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html">ARCS</a>
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<main>
+  <h2 id="name">loading…</h2>
+  <div class="addr" id="addr"></div>
+  <div class="counts" id="counts"></div>
+  <div id="sections"></div>
+</main>
+
+<script>
+document.querySelectorAll(".topbar nav a.active").forEach(el => {
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (document.referrer && new URL(document.referrer).origin === location.origin) {
+      history.back();
+    } else {
+      location.href = el.getAttribute("href") || "index.html";
+    }
+  });
+});
+(function setupTheme() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
+  sync();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+    sync();
+  });
+})();
+</script>
+<script src="sprawl-data.js"></script>
+<script>
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const addr = (params.get("addr") || "").toLowerCase();
+
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]
+    ));
+  }
+  function shortAddr(a) { return (a || "").slice(0,6) + "…" + (a || "").slice(-4); }
+  function snippet(text, n) {
+    const s = (text || "").replace(/\s+/g, " ").trim();
+    return s.length <= n ? s : s.slice(0, n - 1) + "…";
+  }
+
+  if (!addr || !/^0x[0-9a-f]{40}$/.test(addr)) {
+    document.getElementById("name").textContent = "Bad address.";
+    return;
+  }
+
+  try {
+    // On-chain identity via Goldsky; off-chain authored content via our API.
+    const [onchain, linksResp, votesResp] = await Promise.all([
+      SprawlGraph.citizen(addr),
+      SprawlAPI.byAuthor(addr, 1000),
+      SprawlAPI.votesByVoter(addr, 1000),
+    ]);
+
+    if (!onchain) {
+      document.getElementById("name").textContent = "Unknown address.";
+      document.getElementById("addr").textContent = shortAddr(addr);
+      return;
+    }
+
+    const display = onchain.name || shortAddr(onchain.id);
+    document.title = "Sprawl — " + display;
+    document.getElementById("name").innerHTML =
+      escapeHtml(display.toUpperCase()) +
+      (onchain.isBanned ? ' <span class="banned-tag">| BANNED</span>' : "");
+    document.getElementById("addr").innerHTML =
+      `<div class="line">${escapeHtml(onchain.id)}</div>` +
+      `<div class="line">registered at block ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`;
+
+    const all    = (linksResp && linksResp.items) || [];
+    const votes  = (votesResp  && votesResp.items) || [];
+    const links  = all.filter(d => !d.isRecap);
+    const recaps = all.filter(d =>  d.isRecap);
+
+    const counts = [
+      ["LINKS",                `${links.length}${recaps.length ? ` (+${recaps.length} recap${recaps.length === 1 ? "" : "s"})` : ""}`],
+      ["COLLECTED AS CREATOR", onchain.totalCollectedAsCreator || 0],
+      ["PURCHASES",            onchain.totalPurchases || 0],
+      ["SALES",                onchain.totalSales || 0],
+      ["VOTES CAST",           votes.length],
+    ];
+    document.getElementById("counts").innerHTML = counts
+      .map(([k, v]) => `<div class="row"><span class="k">${k}:</span><span>${v}</span></div>`)
+      .join("");
+
+    const sections = [];
+
+    if (all.length) {
+      const rows = all.map(l => {
+        const tag = l.isRecap ? " | recap" : "";
+        const body = l.cleared ? "[cleared]" : snippet(l.text, 140);
+        const voteCount = l.voteCount || 0;
+        const displayId = l.linkId.length <= 8 ? l.linkId : l.linkId.slice(0,12) + "…";
+        return `<div class="link-row">
+          <div class="head">
+            <a href="index.html#link-${encodeURIComponent(l.linkId)}">#${escapeHtml(displayId)}</a>
+            | +${escapeHtml(String(voteCount))}${tag}
+          </div>
+          <div class="body">${escapeHtml(body)}</div>
+        </div>`;
+      }).join("");
+      sections.push(`<h3>LINKS</h3>${rows}`);
+    }
+
+    if (votes.length) {
+      const html = votes
+        .map(v => `<a href="index.html#link-${encodeURIComponent(v.linkId)}">${escapeHtml(v.linkId.slice(0,12))}…</a>`)
+        .join(", ");
+      sections.push(`<h3>VOTES</h3><div class="votes-line">${html}</div>`);
+    }
+
+    document.getElementById("sections").innerHTML =
+      sections.length ? sections.join("") : '<div style="color: var(--mute);">(no contributions yet)</div>';
+  } catch (e) {
+    document.getElementById("name").textContent = "Could not load: " + e.message;
+  }
+})();
+</script>
+
+</body>
+</html>
