@@ -15,8 +15,15 @@
 
   // Override these via window.SPRAWL_API_URL / window.SPRAWL_SUBGRAPH_URL
   // before this script loads, or edit the defaults here at deploy time.
+  //
+  // The default is CloudFront in front of API Gateway. Reads are served
+  // from edge cache per the origin's Cache-Control headers (typically
+  // 10–30s), which absorbs repeat traffic and keeps our Lambda pool free
+  // for real work. POST writes pass straight through. To bypass the CDN
+  // (e.g., when you just wrote and want immediately-fresh reads), point
+  // window.SPRAWL_API_URL at https://zujinkdgtj.execute-api.us-east-1.amazonaws.com/dev
   const API_URL = window.SPRAWL_API_URL ||
-    "https://zujinkdgtj.execute-api.us-east-1.amazonaws.com/dev";
+    "https://d1pdbr4fdk59bz.cloudfront.net";
   const SUBGRAPH_URL = window.SPRAWL_SUBGRAPH_URL ||
     "https://api.goldsky.com/api/public/project_cmo4yujy1v9de01zhfzy88sqs/subgraphs/sprawl-hybrid/0.1.0/gn";
 
@@ -65,7 +72,9 @@
     votesByVoter:  (a,lim=50)  => rest(`/votes/by-voter/${a.toLowerCase()}?limit=${lim}`),
     stats:         ()          => rest(`/stats/global`),
     citizenStats:  (a)         => rest(`/citizens/${a.toLowerCase()}/stats`),
-    nextLinkId:    ()          => rest(`/next-link-id`),
+    // nextLinkId was removed with the split-signature flow. The server
+    // assigns the linkId after validation and returns it in the write
+    // response; there's no need to pre-fetch an ID.
     collectPrepare:(k,id)      => rest(`/collect/prepare/${k}/${encodeURIComponent(id)}`),
   };
 
@@ -149,7 +158,28 @@
     return { onchain, drafts: drafts && drafts.items || [] };
   }
 
+  // Bounded-concurrency map: runs at most `limit` copies of `fn` in flight
+  // at once. Drop-in replacement for `Promise.all(items.map(fn))` when the
+  // per-item work is a network call — avoids overwhelming the AWS account's
+  // Lambda concurrency cap (currently 10), which manifests as opaque 500s.
+  async function mapLimit(items, limit, fn) {
+    const out = new Array(items.length);
+    let next = 0;
+    async function worker() {
+      while (true) {
+        const i = next++;
+        if (i >= items.length) return;
+        out[i] = await fn(items[i], i);
+      }
+    }
+    const workers = [];
+    for (let w = 0; w < Math.min(limit, items.length); w++) workers.push(worker());
+    await Promise.all(workers);
+    return out;
+  }
+
   global.SprawlAPI   = SprawlAPI;
   global.SprawlGraph = SprawlGraph;
   global.citizenFull = citizenFull;
+  global.mapLimit    = mapLimit;
 })(window);

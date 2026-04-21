@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://d1pdbr4fdk59bz.cloudfront.net" crossorigin>
+<link rel="preconnect" href="https://api.goldsky.com" crossorigin>
 <title>Sprawl — Entities</title>
 <script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
 <style>
@@ -145,12 +147,16 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       return;
     }
 
-    // Fetch mention rows per entity in parallel (bounded at our small scale).
+    // Fetch mention rows per entity with bounded concurrency so a page with
+    // many entities doesn't exceed the account's Lambda concurrency cap and
+    // trigger 500s on the overflow.
     const mentionsByEntity = {};
-    await Promise.all(entities.map(async e => {
-      const m = await SprawlAPI.entityMentions(e.entityId, 200);
-      mentionsByEntity[e.entityId] = (m && m.items) || [];
-    }));
+    await mapLimit(entities, 3, async e => {
+      try {
+        const m = await SprawlAPI.entityMentions(e.entityId, 200);
+        mentionsByEntity[e.entityId] = (m && m.items) || [];
+      } catch { mentionsByEntity[e.entityId] = []; }
+    });
 
     // Group by type, sort alphabetically within each group.
     const byType = { character: [], place: [], object: [], event: [] };

@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://d1pdbr4fdk59bz.cloudfront.net" crossorigin>
+<link rel="preconnect" href="https://api.goldsky.com" crossorigin>
 <title>Sprawl — Authors</title>
 <script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
 <style>
@@ -120,13 +122,14 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       return;
     }
 
-    // Fetch per-citizen content counts in parallel.
+    // Bounded-concurrency fetch so a page with many citizens doesn't exceed
+    // the account's Lambda concurrency cap and trigger 500s on the overflow.
     const statsByAddr = {};
-    await Promise.all(citizens.map(async c => {
+    await mapLimit(citizens, 3, async c => {
       try {
         statsByAddr[c.id] = await SprawlAPI.citizenStats(c.id);
       } catch { statsByAddr[c.id] = {}; }
-    }));
+    });
 
     // Sort by creative contributions (links + entities + arcs), highest first.
     citizens.sort((a, b) => {

@@ -41,7 +41,7 @@ ENV_PATH      = KIT_DIR / ".env"
 WORKSPACE_DIR = KIT_DIR / "workspace"
 HISTORY_PATH  = WORKSPACE_DIR / "history.jsonl"
 THREADS_DIR   = WORKSPACE_DIR / "threads"
-STYLE_PATH    = WORKSPACE_DIR / "style.md"
+VOICE_PATH    = WORKSPACE_DIR / "voice.md"
 
 
 # =====================================================================
@@ -70,8 +70,11 @@ BPS_DENOM               = 10_000
 DEFAULT_CONFIG: dict[str, Any] = {
     "chain_id":         11155111,
     "rpc_url":          "https://ethereum-sepolia.publicnode.com",
-    "contract_address": "0x3afd162d985db8215d8662f597428fa71fedba25",
-    "api_url":          "https://zujinkdgtj.execute-api.us-east-1.amazonaws.com/dev",
+    "contract_address": "0x8A8F8d3D9b459c70e55f66Ad6de92987aC350dD6",
+    # Primary URL for all reads and writes. CloudFront caches GETs at the
+    # edge per the origin's Cache-Control header (10–30s typical); POSTs
+    # pass straight through.
+    "api_url":          "https://d1pdbr4fdk59bz.cloudfront.net",
     "subgraph_url":     "https://api.goldsky.com/api/public/project_cmo4yujy1v9de01zhfzy88sqs/subgraphs/sprawl-hybrid/0.1.0/gn",
 }
 
@@ -240,12 +243,9 @@ def extract_tags(text: str) -> tuple[list[str], list[str]]:
 # =====================================================================
 
 
-def fetch_next_link_id() -> int:
-    """Reserve the next sequential link id from the API.
-
-    Returns a monotonically increasing integer. IDs are never reused.
-    """
-    return int(api_get("/next-link-id").get("linkId", 0))
+# fetch_next_link_id was removed with the split-signature flow. The client
+# no longer needs to pre-allocate an ID before signing; POST /links now
+# returns the server-assigned linkId in the response.
 
 
 def link_id_hex(link_id: int) -> str:
@@ -288,9 +288,12 @@ def kind_name(kind: int) -> str:
 # =====================================================================
 
 
+# Split-signature scheme. The author signs `Link` without a linkId (they
+# don't know it yet). The server allocates the linkId after validation and
+# cosigns `LinkSealed`. The kit only ever signs `Link`; the server's
+# `LinkSealed` cosign is verified at collect time by the contract.
 LINK_TYPES = {
     "Link": [
-        {"name": "linkId",       "type": "uint256"},
         {"name": "parentId",     "type": "uint256"},
         {"name": "authoredAt",   "type": "uint64"},
         {"name": "nonce",        "type": "uint64"},

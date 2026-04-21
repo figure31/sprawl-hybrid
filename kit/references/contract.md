@@ -1,253 +1,337 @@
 # Contract reference
 
-Deployed on Sepolia (chain id 84532). The deployed address lives in `kit/config.json`
-(`contract_address`); run `python3 read.py setup --contract 0x…` to set it.
+The `Sprawl` contract on Ethereum Sepolia (chain id `11155111` during development; mainnet deployment later). The deployed address is in `kit/config.json` under `contract_address`; set it via `python3 read.py setup` (interactive).
 
-The contract has two layers:
+Sprawl is a **hybrid protocol**. This is important:
 
-1. **Story layer**, links, recaps, entities, arcs, votes, citizens. Write-gated by `writingEnabled`.
-2. **Marketplace layer**, every link / entity / arc is an ownable asset. First sale goes from
-   the contract to a buyer (75% protocol / 25% creator). Subsequent sales go owner → buyer
-   (75% seller / 25% protocol). Sales don't require registration.
+- **The story layer is off-chain.** Writing links, recaps, entities, arcs, and votes happens against the operator-run API, gated by EIP-712 signatures. None of these are contract calls.
+- **The contract handles identity, collection, ownership, and the marketplace.** Collection is the only moment content becomes permanent on-chain; before that, content lives in the off-chain archive as a signed bundle.
 
-Pre-flight views (`can*`) return `0` when the action will succeed, a non-zero code otherwise.
-Use them before spending gas.
+Every collectible (`collectLink`, `collectEntity`, `collectArc`) carries two EIP-712 signatures: the **author**'s and the **operator**'s. The operator is a single on-chain address whose co-signature gates every collection — preventing direct-to-contract injection of unauthorized content.
 
 ---
 
-## Story: write functions
+## 1. State
+
+```solidity
+mapping(address => CitizenInfo)     public citizens;
+mapping(uint256 => CollectedLink)   public collectedLinks;
+mapping(bytes32 => CollectedEntity) public collectedEntities;
+mapping(bytes32 => CollectedArc)    public collectedArcs;
+
+address public operator;          // only signer whose co-sig permits collection
+uint256 public registrationFee;
+uint256 public firstSalePrice;    // flat price for every first-time collection
+bool    public paused;            // blocks register + all collect*
+
+uint256 public protocolBalance;   // admin-owed (registration fees + protocol cuts)
+address public treasury;          // destination for withdrawProtocol()
+mapping(address => uint256) public pendingWithdrawals;   // seller/creator credits
+```
+
+Citizen registry is public; citizen ban status is public. Every collected asset's storage slot holds the full EIP-712 signatures alongside the SSTORE2 content pointer — permanent provenance.
+
+---
+
+## 2. Citizen functions
 
 | Function | Signature | Notes |
 |---|---|---|
-| `register` | `register(string name) payable` | Pays `registrationFee`. Overpayment refunded. |
-| `renameCitizen` | `renameCitizen(string name)` | Must be registered. |
-| `addLink` | `addLink(uint256 parentId, string text) payable returns (uint256)` | Pays `protocolFee`. Text ≤ 1000 bytes. Parent must exist (or be `0` for genesis, which is owner-only). |
-| `addRecap` | `addRecap(uint256 parentId, string text, uint256 coversFromId, uint256 coversToId) payable returns (uint256)` | Same as `addLink` + range validation. |
-| `createEntity` | `createEntity(string id, string name, string type, string description) payable` | Type ∈ {character, place, object, event}. First-wins. |
-| `createArc` | `createArc(string id, uint256 anchorLinkId, string description) payable` | Anchor must exist. First-wins. |
-| `vote` | `vote(uint256 linkId)` | One per citizen per link. Gas only. |
+| `register` | `register(string name) payable` | Pays `registrationFee`. Overpayment refunded. Blocked when `paused`. Name 1–64 bytes. |
+| `renameCitizen` | `renameCitizen(string name)` | Must be registered and not banned. Name 1–64 bytes. |
 
-Arcs have no status/lifecycle, they are an anchor and a description, nothing more.
-References accumulate via tags in link text.
+There is **no unregister**. Ban is admin-only.
 
 ---
 
-## Story: pre-flight reads
+## 3. Collection functions
 
-| Function | Returns | `0` means |
-|---|---|---|
-| `canAddLink(address, uint256 parentId)` | `uint8` | can submit link with this parent |
-| `canAddRecap(address, uint256 parentId, uint256 coversFromId, uint256 coversToId)` | `uint8` | can submit recap |
-| `canCreateEntity(address, string entityId)` | `uint8` | can create this entity |
-| `canCreateArc(address, string arcId, uint256 anchorLinkId)` | `uint8` | can create this arc |
-| `canVote(uint256 linkId, address voter)` | `uint8` | can vote on this link |
+All three functions:
+- Require `msg.value == firstSalePrice` (exact).
+- Verify `authorSig` recovers to the `author` address.
+- Verify `operatorSig` recovers to the current `operator` address.
+- Require `author` is a registered, non-banned citizen.
+- Require the target slot is empty (no `AlreadyCollected`).
+- Blocked when `paused`.
+- Emit both `*Collected` and `Sold` (with `firstSale=true`).
+- Credit 25% of price to the creator's `pendingWithdrawals`; 75% to `protocolBalance`.
 
-### Status codes
+### `collectLink`
 
-**`canAddLink` / `canAddRecap`:**
-`0` ok · `1` not registered · `2` banned · `3` writing disabled · `4` parent does not exist ·
-`5` genesis restricted to contract owner ·
-(`canAddRecap` only) `6` invalid recap range · `7` coversFromId missing · `8` coversToId missing
+```solidity
+function collectLink(
+    uint256 linkId,
+    uint256 parentId,
+    uint64  authoredAt,
+    uint64  nonce,
+    uint64  beaconBlock,
+    bool    isRecap,
+    uint256 coversFromId,
+    uint256 coversToId,
+    address author,
+    bytes   text,
+    Sig     authorSig,
+    Sig     operatorSig
+) external payable
+```
 
-**`canCreateEntity`:**
-`0` ok · `1` not registered · `2` banned · `3` writing disabled · `4` entity already exists
+Text 1–1000 bytes. If `isRecap`, `coversFromId <= coversToId` is required.
 
-**`canCreateArc`:**
-`0` ok · `1` not registered · `2` banned · `3` writing disabled · `4` arc already exists ·
-`5` anchor link does not exist
+### `collectEntity`
 
-**`canVote`:**
-`0` ok · `1` not registered · `2` banned · `3` link does not exist · `4` already voted
+```solidity
+function collectEntity(
+    string  entityId,
+    string  name,
+    string  entityType,    // "character" | "place" | "object" | "event"
+    string  description,
+    uint64  authoredAt,
+    uint64  nonce,
+    uint64  beaconBlock,
+    address author,
+    Sig     authorSig,
+    Sig     operatorSig
+) external payable
+```
+
+Key in storage is `keccak256(bytes(entityId))`.
+
+### `collectArc`
+
+```solidity
+function collectArc(
+    string  arcId,
+    uint256 anchorLinkId,
+    string  description,
+    uint64  authoredAt,
+    uint64  nonce,
+    uint64  beaconBlock,
+    address author,
+    Sig     authorSig,
+    Sig     operatorSig
+) external payable
+```
+
+Extra requirement: `anchorLinkId` must already be collected (`AnchorLinkNotCollected` otherwise). Key in storage is `keccak256(bytes(arcId))`.
 
 ---
 
-## Marketplace: write functions
+## 4. Read / reconstruction
 
-Assets are addressed by a `(kind, id)` tuple. The `kind` enum is `0=Link`, `1=Entity`, `2=Arc`.
-The `id` is a `bytes32`: for links it's `bytes32(uint256(linkId))`, for entities/arcs it's
-`keccak256(bytes(stringId))`. The kit handles this encoding; you only see it if you call the
-contract directly via `cast`.
+After collection, the full record reconstructs from the contract alone. No off-chain dependency.
 
-| Function | Signature | Notes |
-|---|---|---|
-| `list` | `list(uint8 kind, bytes32 id, uint256 price)` | Must be current owner and not the contract. `price` in wei, must be `> 0`. |
-| `unlist` | `unlist(uint8 kind, bytes32 id)` | Clears the listing (sets price to `0`). Same owner guard. |
-| `buy` | `buy(uint8 kind, bytes32 id, uint256 expectedPrice) payable` | `msg.value == expectedPrice` required. `expectedPrice` is the frontrun guard. |
-| `withdraw` | `withdraw()` | Pulls `pendingWithdrawals[msg.sender]`. |
-
-### Sale accounting
-
-- **First sale** (contract is current owner): `protocolCut = 75% × price`; the remaining 25%
-  is credited to the *creator* (Link.author / Entity.creator / Arc.creator) via the pull-payment
-  ledger.
-- **Resale** (a user is current owner): `protocolCut = 25% × price`; the remaining 75% is
-  credited to the seller.
-- `protocolCut = price * bps / 10_000` where `bps` is 7500 on first sale, 2500 on resale.
-  `sellerCut = price − protocolCut` (no rounding loss).
-
-Sales do **not** push ETH to recipients. They credit a pull-payment ledger. Claim with `withdraw()`.
-
----
-
-## Marketplace: pre-flight reads
-
-| Function | `0` means |
+| Function | Returns |
 |---|---|
-| `canBuy(address buyer, uint8 kind, bytes32 id, uint256 expectedPrice)` | can buy at this price |
-| `canList(address seller, uint8 kind, bytes32 id, uint256 price)` | can list at this price |
+| `readLink(uint256 linkId)` | `LinkView` — creator, owner, timestamps, parent, isRecap, coversFromId/To, text, both sigs, price |
+| `readEntity(bytes32 key)` | `EntityView` — creator, owner, timestamps, packed content (`name \0 entityType \0 description`), both sigs, price |
+| `readArc(bytes32 key)` | `ArcView` — creator, owner, timestamps, anchor, description, both sigs, price |
 
-**`canBuy`:**
-`0` ok · `1` asset does not exist · `2` buyer is already the owner ·
-`3` not for sale (price is zero) · `4` price mismatch (seller changed the listing)
-
-**`canList`:**
-`0` ok · `1` asset does not exist ·
-`2` caller is not the current owner (or the contract still owns it) ·
-`3` price must be greater than zero
+`key` for entity/arc is `keccak256(bytes(<id>))`; the kit handles this encoding.
 
 ---
 
-## Marketplace: view functions
+## 5. Marketplace (resale of collected assets)
 
-| Function | Returns | Notes |
+| Function | Signature | Notes |
 |---|---|---|
-| `ownerOf(uint8 kind, bytes32 id)` | `address` | Current owner; equals the contract address until first sale. |
-| `priceOf(uint8 kind, bytes32 id)` | `uint256` | Listing price. For contract-owned assets, returns `firstSalePrice`. |
-| `firstSalePrice()` | `uint256` | Global primary-sale price, admin-settable. |
-| `pendingWithdrawals(address)` | `uint256` | Claimable ETH for this address. |
-| `protocolBalance()` | `uint256` | Admin-side balance (registration fees + protocol fees + sale cuts). |
-| `treasury()` | `address` | Where `withdrawProtocol()` sends funds. Admin-settable. |
-| `linkOwner(uint256) / linkPrice(uint256)` | `address / uint256` | Raw per-asset mappings. Zero-address owner = lazy-init sentinel = contract. |
-| `entityOwner(bytes32) / entityPrice(bytes32)` | same | as above, keyed by keccak of the entity id |
-| `arcOwner(bytes32) / arcPrice(bytes32)` | same | as above, keyed by keccak of the arc id |
+| `list` | `list(AssetKind kind, bytes32 id, uint256 price)` | Caller must be current owner. `price > 0`. Sets listing. Re-listing overwrites. |
+| `unlist` | `unlist(AssetKind kind, bytes32 id)` | Same owner guard. Sets price to 0. |
+| `buy` | `buy(AssetKind kind, bytes32 id, uint256 expectedPrice) payable` | `msg.value == expectedPrice == currentPrice`. Resale split: 25% protocol / 75% seller. Ownership transfers; price resets to 0. |
+| `withdraw` | `withdraw()` | Claims `pendingWithdrawals[msg.sender]`. Reverts if zero. |
+
+`AssetKind` is an enum: `0=Link`, `1=Entity`, `2=Arc`. `id` is `bytes32(uint256(linkId))` for links, `keccak256(bytes(stringId))` for entities and arcs.
+
+Buyers never trigger a push to sellers. Proceeds accumulate in `pendingWithdrawals` and are claimed via `withdraw()` (pull-payment pattern).
 
 ---
 
-## Events
+## 6. Pre-flight reads
 
-Text content lives in events. The API indexes events; the contract stores only structural
-metadata.
+Return `0` on success, a positive status code otherwise. Use before paying gas.
 
-### Story
+### `canList(address seller, AssetKind kind, bytes32 id, uint256 price)`
 
-- `LinkAdded(uint256 linkId, uint256 parentId, address author, string text)`
-- `RecapAdded(uint256 linkId, uint256 parentId, address author, uint256 coversFromId, uint256 coversToId, string text)`
-- `EntityCreated(bytes32 entityKey, string entityId, string name, string entityType, string description, address creator)`
-- `ArcCreated(bytes32 arcKey, string arcId, uint256 anchorLinkId, string description, address creator)`
-- `LinkVoted(uint256 linkId, address voter)`
-- `LinkCleared(uint256 linkId)`, moderation; API blanks text
-- `EntityCleared(bytes32 entityKey, string entityId)`, same, for entities
-- `ArcCleared(bytes32 arcKey, string arcId)`, same, for arcs
+| Code | Meaning |
+|---|---|
+| 0 | ok |
+| 1 | asset does not exist |
+| 2 | caller is not the current owner |
+| 3 | price is zero |
+
+### `canBuy(address buyer, AssetKind kind, bytes32 id, uint256 expectedPrice)`
+
+| Code | Meaning |
+|---|---|
+| 0 | ok |
+| 1 | asset does not exist |
+| 2 | buyer is already the owner |
+| 3 | not for sale (price is 0) |
+| 4 | price mismatch (seller changed the listing) |
+
+---
+
+## 7. View functions
+
+| Function | Returns |
+|---|---|
+| `ownerOf(AssetKind, bytes32)` | current owner address |
+| `priceOf(AssetKind, bytes32)` | current listing price (0 = not for sale) |
+| `citizens(address)` | `CitizenInfo` struct (name, isRegistered, isBanned, totalCollected, registeredAt) |
+| `pendingWithdrawals(address)` | claimable ETH for that address |
+| `protocolBalance()` | admin-owed ETH (registration fees + protocol cuts) |
+| `treasury()` | admin treasury address |
+| `registrationFee()`, `firstSalePrice()`, `paused()`, `operator()` | current config values |
+| `DOMAIN_SEPARATOR()` | EIP-712 domain separator |
+| `maxLinkBytes()`, `maxNameBytes()`, `maxEntityIdBytes()`, `maxEntityNameBytes()`, `maxEntityDescriptionBytes()`, `maxArcIdBytes()`, `maxArcDescriptionBytes()` | size limit constants |
+
+---
+
+## 8. Events
+
+### Citizen
+
 - `CitizenRegistered(address citizen, string name)`
 - `CitizenRenamed(address citizen, string name)`
-- `CitizenBanned(address citizen)`, `CitizenUnbanned(address citizen)`
+- `CitizenBanned(address citizen)`
+- `CitizenUnbanned(address citizen)`
+
+### Collection
+
+- `LinkCollected(uint256 linkId, address creator, address collector, uint256 parentId, bool isRecap, uint256 coversFromId, uint256 coversToId, uint256 price)`
+- `EntityCollected(bytes32 key, string entityId, address creator, address collector, uint256 price)`
+- `ArcCollected(bytes32 key, string arcId, uint256 anchorLinkId, address creator, address collector, uint256 price)`
 
 ### Marketplace
 
-- `Listed(uint8 kind, bytes32 id, address owner, uint256 price)`
-- `Unlisted(uint8 kind, bytes32 id, address owner)`
-- `Sold(uint8 kind, bytes32 id, address seller, address buyer, uint256 price, bool firstSale, uint256 protocolCut, uint256 sellerCut)`
+- `Listed(AssetKind kind, bytes32 id, address owner, uint256 price)`
+- `Unlisted(AssetKind kind, bytes32 id, address owner)`
+- `Sold(AssetKind kind, bytes32 id, address seller, address buyer, uint256 price, bool firstSale, uint256 protocolCut, uint256 sellerCut)` — emitted both on first sale (during collect) and resale
 - `Withdrawn(address recipient, uint256 amount)`
 - `ProtocolWithdrawn(address treasury, uint256 amount)`
-- `TreasuryChanged(address newTreasury)`
+
+### Moderation
+
+- `LinkCleared(uint256 linkId)`
+- `EntityCleared(bytes32 key)`
+- `ArcCleared(bytes32 key)`
+
+### Admin config
+
+- `RegistrationFeeChanged(uint256 newFee)`
 - `FirstSalePriceChanged(uint256 newPrice)`
-
-### Admin fee settings
-
-- `RegistrationFeeUpdated(uint256 fee)`
-- `ProtocolFeeUpdated(uint256 fee)`
-- `WritingEnabledUpdated(bool enabled)`
+- `TreasuryChanged(address newTreasury)`
+- `OperatorChanged(address oldOperator, address newOperator)`
+- `PausedChanged(bool paused)`
 
 ---
 
-## Errors
+## 9. Errors
 
-### Story
+### Citizen / auth
 
-- `NotCitizen()`, caller is not registered
-- `AlreadyRegistered()`, `register` called twice by the same address
-- `Banned(address)`, banned addresses can't write or vote
-- `NotBanned(address)`, `unbanCitizen` called on a non-banned address
-- `WritingDisabled()`, `writingEnabled` is false
-- `NotGenesisAuthor()`, only the owner may author link 0
-- `NameEmpty()`, `NameTooLong(max, actual)`, citizen name (64 byte cap)
-- `TextEmpty()`, `TextTooLong(max, actual)`, link text (1000 byte cap)
-- `LinkDoesNotExist(linkId)`, referenced link missing
-- `AlreadyVoted()`, one vote per citizen per link
-- `InvalidRecapRange(from, to)`, `coversFromId > coversToId`
-- `EntityIdEmpty`, `EntityIdTooLong`, `EntityNameEmpty`, `EntityNameTooLong`,
-  `EntityDescriptionTooLong`, `EntityAlreadyExists(id)`, `EntityDoesNotExist(id)`,
-  `InvalidEntityType(type)`, entity validation
-- `ArcIdEmpty`, `ArcIdTooLong`, `ArcDescriptionEmpty`, `ArcDescriptionTooLong`,
-  `ArcAlreadyExists(id)`, `ArcDoesNotExist(id)`, arc validation
-- `InsufficientPayment(required, sent)`, fee payment underflow
-- `TransferFailed()`, refund couldn't be delivered (very rare)
+- `NotCitizen()` — caller or referenced author is not registered
+- `AlreadyRegistered()` — `register` called twice by same address
+- `Banned(address)` — referenced address has been banned
+- `NotBanned(address)` — `unbanCitizen` on a non-banned address
+- `Paused()` — the collection layer is paused
+- `NameEmpty()`, `NameTooLong(max, actual)` — citizen name (64 byte cap)
+
+### Content validation
+
+- `TextEmpty()`, `TextTooLong(max, actual)` — link text (1000 byte cap)
+- `EntityIdEmpty()`, `EntityIdTooLong(...)` — entity id (64 byte cap)
+- `EntityNameEmpty()`, `EntityNameTooLong(...)` — entity display name (128 byte cap)
+- `EntityDescriptionTooLong(...)` — entity description (500 byte cap)
+- `InvalidEntityType(string)` — type must be character / place / object / event
+- `ArcIdEmpty()`, `ArcIdTooLong(...)` — arc id (64 byte cap)
+- `ArcDescriptionEmpty()`, `ArcDescriptionTooLong(...)` — arc description (500 byte cap)
+
+### Collection
+
+- `AlreadyCollected()` — the target slot is already populated
+- `AnchorLinkNotCollected()` — collecting an arc whose anchor link isn't on-chain
+- `BadAuthorSig()` — `authorSig` doesn't recover to the claimed `author`
+- `BadOperatorSig()` — `operatorSig` doesn't recover to the current `operator`
+- `InvalidRecapRange()` — `coversFromId > coversToId`
+
+### Payment
+
+- `InsufficientPayment(required, sent)` — `msg.value < registrationFee` on `register`
+- `IncorrectPayment(required, sent)` — `msg.value != firstSalePrice` on collect, or `msg.value != price` on `buy`
 
 ### Marketplace
 
-- `AssetDoesNotExist()`, unknown `(kind, id)`
-- `NotAssetOwner()`, caller is not the current owner (or contract still owns it)
-- `InvalidPrice()`, listing with `price == 0`
-- `NotForSale()`, buy attempted against an unlisted asset
-- `CannotBuyOwnAsset()`, buyer is the current owner
-- `PriceMismatch(onchainPrice, expectedPrice)`, frontrun guard
-- `IncorrectPayment(required, sent)`, `msg.value != price`
-- `NothingToWithdraw()`, `withdraw()` with no pending balance
-- `ZeroAddress()`, `setTreasury(0x0)`
+- `AssetDoesNotExist()` — unknown `(kind, id)`
+- `NotAssetOwner()` — caller is not the current owner
+- `InvalidPrice()` — `list` with `price == 0`
+- `NotForSale()` — `buy` on an unlisted asset
+- `CannotBuyOwnAsset()` — buyer is the current owner
+- `PriceMismatch(onchainPrice, expectedPrice)` — frontrun guard
+- `NothingToWithdraw()` — `withdraw()` with zero balance
+- `ZeroAddress()` — `setTreasury(0x0)` or `setOperator(0x0)`
 
 ---
 
-## Size limits (bytes, UTF-8)
+## 10. Size limits (bytes, UTF-8)
 
-| Field | Max |
-|---|---|
-| Link / recap text | 1000 |
-| Citizen name | 64 |
-| Entity id | 64 |
-| Entity name | 128 |
-| Entity description | 500 |
-| Arc id | 64 |
-| Arc description | 500 |
-
-Also exposed as gas-free view functions: `maxLinkBytes()`, `maxNameBytes()`,
-`maxEntityIdBytes()`, `maxEntityNameBytes()`, `maxEntityDescriptionBytes()`,
-`maxArcIdBytes()`, `maxArcDescriptionBytes()`.
+| Field | Max | Accessor |
+|---|---|---|
+| Link / recap text | 1000 | `maxLinkBytes()` |
+| Citizen name | 64 | `maxNameBytes()` |
+| Entity id | 64 | `maxEntityIdBytes()` |
+| Entity name | 128 | `maxEntityNameBytes()` |
+| Entity description | 500 | `maxEntityDescriptionBytes()` |
+| Arc id | 64 | `maxArcIdBytes()` |
+| Arc description | 500 | `maxArcDescriptionBytes()` |
 
 ---
 
-## Fees (initial deployment)
+## 11. Fees (initial deployment)
 
-- Registration: `0.05 ETH`, settable by owner (`setRegistrationFee`)
-- Protocol fee per write: `0 ETH`, settable by owner (`setProtocolFee`)
-- First sale price: `0.0025 ETH`, settable by owner (`setFirstSalePrice`)
-- Vote: gas only
+Values are admin-settable. Current production defaults:
+
+- Registration: `0.005 ETH` (`setRegistrationFee`)
+- First-sale price: `0.0025 ETH` (`setFirstSalePrice`)
+- Vote: not an on-chain action. Votes are off-chain signatures — free.
+- Link submission / recap / entity / arc creation: not on-chain. Off-chain, signed, free.
+
+The only ways ETH enters the contract are `register` (registration fee → `protocolBalance`), and any `collect*` or `buy` (split per the splits in §5).
 
 ---
 
-## Admin functions (`onlyOwner`)
+## 12. Marketplace splits
+
+```
+First sale  (collect*):  75% → protocolBalance      25% → creator.pendingWithdrawals
+Resale      (buy):       25% → protocolBalance      75% → seller.pendingWithdrawals
+```
+
+Bps constants: `FIRST_SALE_PROTOCOL_BPS = 7500`, `RESALE_PROTOCOL_BPS = 2500`, `BPS_DENOM = 10_000`. Protocol cut is computed as `price * bps / 10_000`; counterparty receives the exact remainder (no rounding loss).
+
+---
+
+## 13. Admin functions (`onlyOwner`)
 
 ### Moderation
 - `banCitizen(address)` / `unbanCitizen(address)`
-- `clearLink(uint256)`, emits `LinkCleared`; API blanks text, link remains in the tree
-- `clearEntity(string entityId)`, emits `EntityCleared`; API blanks description
-- `clearArc(string arcId)`, emits `ArcCleared`; same
+- `clearLink(uint256 linkId)` — sets `cleared=true`; content pointer remains, API blanks returned text
+- `clearEntity(bytes32 key)` / `clearArc(bytes32 key)` — same pattern
 
-### Protocol controls
-- `setWritingEnabled(bool)`, global kill switch for writes (voting and marketplace unaffected)
+### Protocol config
 - `setRegistrationFee(uint256)`
-- `setProtocolFee(uint256)`
 - `setFirstSalePrice(uint256)`
-- `setTreasury(address)`, destination for `withdrawProtocol`
-- `withdrawProtocol()`, sweep `protocolBalance` to `treasury`
+- `setTreasury(address)`
+- `setOperator(address)` — rotates the operator key; existing collected items keep the operator signature they were collected with
+- `setPaused(bool)` — blocks `register` and all `collect*` (but not resale `list`/`buy`/`withdraw`)
+- `withdrawProtocol()` — sweeps `protocolBalance` to `treasury`
 
 ### Ownership (Solady `Ownable`)
-- `owner()`, current admin address
-- `transferOwnership(address)`, `renounceOwnership()`
-- `requestOwnershipHandover()` / `cancelOwnershipHandover()` / `completeOwnershipHandover(address)`, two-step transfer
+- `owner()`, `transferOwnership(address)`, `renounceOwnership()`
+- `requestOwnershipHandover()` / `cancelOwnershipHandover()` / `completeOwnershipHandover(address)` (two-step transfer)
 
 ---
 
-## Accounting invariant
+## 14. Accounting invariant
 
 At all times:
 
@@ -255,7 +339,4 @@ At all times:
 address(this).balance == protocolBalance + Σ pendingWithdrawals[*]
 ```
 
-Every fee paid in (registration, protocol, sale protocol cut) increments `protocolBalance`.
-Every seller/creator credit increments a `pendingWithdrawals` entry. Nothing else accumulates
-ETH in the contract. Admin `withdrawProtocol` and user `withdraw` only touch their respective
-ledgers; neither can drain the other.
+Every fee paid in (registration, first-sale cut, resale cut) increments `protocolBalance`. Every seller or creator credit increments a `pendingWithdrawals` entry. Admin `withdrawProtocol()` only touches `protocolBalance`; user `withdraw()` only touches their `pendingWithdrawals` balance. Neither can drain the other.

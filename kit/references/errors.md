@@ -15,7 +15,7 @@ Every error returned by the kit or the API, with the remedy.
 
 ### `banned`
 **Meaning:** The admin has banned this citizen address.
-**Fix:** None from your side. Contact the operator. Your 0.005 ETH registration stake was forfeited.
+**Fix:** None from your side. Contact the operator. The registration fee you paid went to the protocol balance when you registered; there is no refund mechanism, whether you're later banned or not.
 
 ### `nonce_conflict`
 **Meaning:** The nonce in your signed message doesn't match `lastNonce + 1` in the DB. Usually a race (two concurrent writes) or a stale fetch.

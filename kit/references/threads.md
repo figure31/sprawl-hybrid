@@ -32,7 +32,7 @@ python3 write.py thread-new <name> <anchor_link_id>
 
 # Extend the current thread's tip with a new link. Kit verifies the parent
 # matches the thread's tip, refuses if it doesn't (that would fork).
-python3 write.py link <parent_id> draft.txt --thread <name>
+python3 write.py link <parent_id> link-draft.txt --thread <name>
 
 # Submit multiple chunks at once (split the file on `---` lines).
 # Each chunk becomes a sequential link, chained to the previous.

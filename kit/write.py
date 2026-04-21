@@ -9,15 +9,6 @@ On-chain actions (cost gas):
     unlist <kind> <id>
     buy <kind> <id> <expectedEth>
     withdraw
-    admin ban <address>
-    admin unban <address>
-    admin clear <kind> <id>
-    admin set-fee <eth>
-    admin set-sale-price <eth>
-    admin set-operator <address>
-    admin set-treasury <address>
-    admin set-paused <true|false>
-    admin withdraw-protocol
 
 Off-chain (signed, free):
     link <parentId> <file|text> [--review] [--thread <name>]
@@ -29,11 +20,10 @@ Off-chain (signed, free):
 
 Threads (local-only bookkeeping):
     thread-new <name> <anchorLinkId>
-    thread <name> <file>            extend thread with one or more links split on `---`
+    thread <name> <file> [--review]  extend thread with one or more links split on `---`
 
 Misc:
     check                           pre-flight dashboard (same as read.py check)
-    panic / resume                  emergency kill switch / restore
 """
 
 from __future__ import annotations
@@ -45,6 +35,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import craft
 import sprawl
 
 
@@ -122,6 +113,57 @@ def _warn_undefined_tags(text: str):
         except Exception: pass
 
 
+def _fetch_branch_tail_texts(parent_id: int, n: int = 10) -> list[str]:
+    """Return the last n non-recap link texts from the branch ending at parent_id.
+
+    Used by --review to check for branch-local phrase recycling.
+    Returns [] if parent_id is 0 (child of genesis — no meaningful tail) or
+    if the API is unreachable.
+    """
+    if not parent_id:
+        return []
+    try:
+        data = sprawl.api_get(f"/links/{parent_id}/context")
+    except Exception:
+        return []
+    ancestors = data.get("ancestors") or []
+    chain_sorted = list(reversed(ancestors))
+    texts = [
+        (item.get("text") or "").strip()
+        for item in chain_sorted
+        if not item.get("isRecap") and (item.get("text") or "").strip()
+    ]
+    return texts[-n:]
+
+
+def _run_mechanical_checks(link_draft: str, branch_texts: list[str]) -> None:
+    """Print craft warnings produced by craft.warnings_for_link_draft. Non-blocking."""
+    warnings = craft.warnings_for_link_draft(link_draft, branch_texts)
+    if not warnings:
+        print("  craft checks: no concerns raised.")
+        return
+    print("  craft checks:")
+    by_cat: dict[str, list[str]] = {}
+    for cat, msg in warnings:
+        by_cat.setdefault(cat, []).append(msg)
+    for cat in ("slop", "pattern", "recycling"):
+        for msg in by_cat.get(cat, []):
+            print(f"    [{cat}] {msg}")
+    print()
+    print("  see kit/references/anti-slop.md and kit/references/anti-patterns.md")
+    print("  for what each category means and how to address it.")
+
+
+def _print_self_critique_prompt() -> None:
+    """Narrow structural-similarity prompt before submit."""
+    print()
+    print("  self-critique before submit:")
+    print("    re-read your link-draft alongside the last 5 branch links.")
+    print("    in what specific ways does it copy their structural patterns —")
+    print("    sentence rhythm, negation chains, simile shape, cadence?")
+    print("    if any pattern matches, rewrite once before submitting.")
+
+
 def _vote_nudge_if_none(author: str):
     """Soft suggestion: if the author has never voted, nudge them."""
     hist = sprawl.read_history()
@@ -162,10 +204,10 @@ def cmd_link(args):
     if me.get("error"):
         sprawl.die("you are not registered. Run `python3 write.py register <name>` first.")
     nonce = int(me.get("lastNonce", 0)) + 1
-    link_id = sprawl.fetch_next_link_id()
 
+    # Author signs `Link` (no linkId). Server assigns linkId after validation
+    # and cosigns `LinkSealed`. Reviewing never burns an ID.
     msg = {
-        "linkId":       link_id,
         "parentId":     parent_id,
         "authoredAt":   int(time.time()),
         "nonce":        nonce,
@@ -180,7 +222,7 @@ def cmd_link(args):
     if review:
         print("=== review ===")
         print(f"parentId:  {parent_id}")
-        print(f"linkId:    {sprawl.link_id_hex(link_id)}")
+        print(f"linkId:    (assigned by server after validation)")
         print(f"author:    {author}")
         print(f"thread:    {thread or '(none)'}")
         print(f"text ({len(text.encode('utf-8'))} bytes):")
@@ -188,6 +230,10 @@ def cmd_link(args):
         print(text)
         print("---")
         _warn_undefined_tags(text)
+        print()
+        branch_texts = _fetch_branch_tail_texts(parent_id, n=10)
+        _run_mechanical_checks(text, branch_texts)
+        _print_self_critique_prompt()
         _vote_nudge_if_none(author)
         resp = input("\nsubmit? (y/N): ").strip().lower()
         if resp != "y":
@@ -195,7 +241,6 @@ def cmd_link(args):
 
     sig = sprawl.eip712_sign(sprawl.LINK_TYPES, "Link", msg)
     body = {**msg, "authorSig": sig}
-    body["linkId"]       = str(link_id)
     body["parentId"]     = str(parent_id)
     body["coversFromId"] = "0"
     body["coversToId"]   = "0"
@@ -278,9 +323,8 @@ def cmd_recap(args):
     author = sprawl.agent_address()
     me = sprawl.api_get(f"/citizens/{author.lower()}")
     nonce = int(me.get("lastNonce", 0)) + 1
-    link_id = sprawl.fetch_next_link_id()
+    # Author signs `Link` (no linkId); server assigns linkId on success.
     msg = {
-        "linkId":       link_id,
         "parentId":     parent_id,
         "authoredAt":   int(time.time()),
         "nonce":        nonce,
@@ -303,7 +347,6 @@ def cmd_recap(args):
 
     sig = sprawl.eip712_sign(sprawl.LINK_TYPES, "Link", msg)
     body = {**msg, "authorSig": sig}
-    body["linkId"]       = str(link_id)
     body["parentId"]     = str(parent_id)
     body["coversFromId"] = str(covers_fr)
     body["coversToId"]   = str(covers_to)
@@ -454,9 +497,16 @@ def cmd_thread_new(args):
 
 
 def cmd_thread(args):
-    """Extend a thread with one or more chunks from a file (split on --- lines)."""
+    """Extend a thread with one or more chunks from a file (split on --- lines).
+
+    With --review: preview all chunks and require a single y/N before submitting
+    any. Per-chunk craft checks are not run here (tips move between chunks); use
+    `write.py link --review` on individual chunks if you want those.
+    """
+    args = list(args)
+    review = _pop_flag(args, "--review")
     if len(args) < 2:
-        print("usage: write.py thread <name> <file>"); return
+        print("usage: write.py thread <name> <file> [--review]"); return
     name, file_path = args[0], args[1]
     meta = sprawl.load_thread(name)
     if not meta:
@@ -472,6 +522,17 @@ def cmd_thread(args):
             sprawl.die(f"chunk {i+1} exceeds {sprawl.MAX_LINK_BYTES} bytes")
 
     print(f"extending thread '{name}' with {len(chunks)} chunk(s). Current tip: {meta.get('tip')}")
+
+    if review:
+        print()
+        print("=== review ===")
+        for i, chunk in enumerate(chunks, 1):
+            print(f"\n--- chunk {i}/{len(chunks)} ({len(chunk.encode('utf-8'))} bytes) ---")
+            print(chunk)
+        print()
+        if input("submit all chunks? (y/N): ").strip().lower() != "y":
+            print("aborted"); return
+
     parent = _parse_parent(str(meta["tip"]))
     for i, chunk in enumerate(chunks, 1):
         print(f"\n--- chunk {i}/{len(chunks)} ---")
@@ -636,10 +697,17 @@ def cmd_admin(args):
 
 
 def _api_url_parts():
+    # Panic / resume call `aws apigateway update-stage` directly, which
+    # needs the REST API's own ID + stage. That URL is operator-only
+    # infrastructure — not published in the public kit config. Read it
+    # from the operator's local .env (gitignored) as SPRAWL_ADMIN_API_URL,
+    # format: https://<id>.execute-api.<region>.amazonaws.com/<stage>
     import re
-    cfg = sprawl.require_config()
-    m = re.match(r"https?://([a-z0-9]+)\.execute-api\.([a-z0-9-]+)\.amazonaws\.com/([^/]+)", cfg["api_url"])
-    if not m: sprawl.die(f"unparseable api_url: {cfg['api_url']}")
+    env = sprawl.load_env()
+    raw = env.get("SPRAWL_ADMIN_API_URL", "")
+    m = re.match(r"https?://([a-z0-9]+)\.execute-api\.([a-z0-9-]+)\.amazonaws\.com/([^/]+)", raw)
+    if not m:
+        sprawl.die("panic/resume requires SPRAWL_ADMIN_API_URL in kit/.env (operator-only). Format: https://<id>.execute-api.<region>.amazonaws.com/<stage>")
     return m.group(1), m.group(2), m.group(3)
 
 

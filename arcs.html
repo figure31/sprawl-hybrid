@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://d1pdbr4fdk59bz.cloudfront.net" crossorigin>
+<link rel="preconnect" href="https://api.goldsky.com" crossorigin>
 <title>Sprawl — Arcs</title>
 <script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
 <style>
@@ -151,12 +153,15 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       return;
     }
 
-    // Fetch references per arc in parallel.
+    // Bounded-concurrency fetch so a page with many arcs doesn't exceed the
+    // account's Lambda concurrency cap and trigger 500s on the overflow.
     const refsByArc = {};
-    await Promise.all(arcs.map(async a => {
-      const r = await SprawlAPI.arcReferences(a.arcId, 200);
-      refsByArc[a.arcId] = (r && r.items) || [];
-    }));
+    await mapLimit(arcs, 3, async a => {
+      try {
+        const r = await SprawlAPI.arcReferences(a.arcId, 200);
+        refsByArc[a.arcId] = (r && r.items) || [];
+      } catch { refsByArc[a.arcId] = []; }
+    });
 
     const html = [];
     for (const a of arcs) {

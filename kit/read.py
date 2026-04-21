@@ -42,10 +42,23 @@ import json
 import sys
 from pathlib import Path
 
+import craft
 import sprawl
 
 
 USAGE = __doc__
+
+
+def _print_or_missing(data: dict, label: str) -> None:
+    """Pretty-print a JSON payload, or a friendly 'not found' if it's a 404.
+
+    Keeps the agent-facing output human-readable instead of leaking the raw
+    `{"error": "not_found"}` JSON for a simple mistype.
+    """
+    if isinstance(data, dict) and data.get("error") == "not_found":
+        print(f"{label} not found")
+        return
+    print(json.dumps(data, indent=2))
 
 
 def main():
@@ -164,14 +177,16 @@ def cmd_home(args):
             if counts.get(k):
                 print(f"  {k}: {counts[k]}")
 
-    # Style declaration
-    if not sprawl.STYLE_PATH.exists():
+    # Voice declaration
+    if not sprawl.VOICE_PATH.exists():
         print()
-        print("Style declared: no")
-        print("  consider writing kit/workspace/style.md to anchor your voice across sessions")
+        print("Voice declared: no")
+        print("  consider writing kit/workspace/voice.md — a short refusal document")
+        print("  (rhetorical moves you won't make, registers you won't default to)")
+        print("  see SKILL.md §4 step 7 for the template")
     else:
         print()
-        print(f"Style declared: yes ({sprawl.STYLE_PATH})")
+        print(f"Voice declared: yes ({sprawl.VOICE_PATH})")
 
     # Threads
     threads = sprawl.list_thread_names()
@@ -300,7 +315,7 @@ def cmd_citizen(args):
             data = sprawl.api_get(f"/citizens/by-name/{target}")
     except Exception as e:
         print(f"lookup failed: {e}"); return
-    print(json.dumps(data, indent=2))
+    _print_or_missing(data, f"citizen '{target}'")
 
 
 def cmd_stats(args):
@@ -319,13 +334,13 @@ def cmd_stats(args):
 def cmd_link(args):
     if not args:
         print("usage: read.py link <linkId>"); return
-    print(json.dumps(sprawl.api_get(f"/links/{args[0]}"), indent=2))
+    _print_or_missing(sprawl.api_get(f"/links/{args[0]}"), f"link {args[0]}")
 
 
 def cmd_children(args):
     if not args:
         print("usage: read.py children <linkId>"); return
-    print(json.dumps(sprawl.api_get(f"/links/{args[0]}/children"), indent=2))
+    _print_or_missing(sprawl.api_get(f"/links/{args[0]}/children"), f"link {args[0]}")
 
 
 def cmd_ancestry(args):
@@ -435,6 +450,40 @@ def cmd_context(args):
         print(f"\n#{item.get('linkId')} ({item.get('author', '')[:10]}…)")
         print((item.get('text') or '').rstrip())
 
+    # Branch voice report — what patterns is this branch repeating?
+    # This runs last so the divergence instruction is the agent's freshest
+    # memory before drafting. See craft.py and references/anti-patterns.md.
+    non_recap_texts = [
+        (item.get("text") or "").strip()
+        for item in chain_sorted
+        if not item.get("isRecap") and (item.get("text") or "").strip()
+    ]
+    tail_texts = non_recap_texts[-10:]
+    if len(tail_texts) >= 3:
+        report = craft.branch_voice_report(tail_texts)
+        sprawl.section(f"branch voice report (last {len(tail_texts)} non-recap links)")
+        if report["top_ngrams"]:
+            print("  recurring 3-grams across this branch:")
+            for phrase, count in report["top_ngrams"]:
+                print(f"    {count}×  {phrase!r}")
+        else:
+            print("  recurring 3-grams: none above threshold")
+
+        print()
+        if report["present"]:
+            print("  load-bearing rhetorical moves (per-link average):")
+            for label, avg in report["present"]:
+                print(f"    {avg}×  {label}")
+        else:
+            print("  no anti-pattern moves above threshold — this branch has range.")
+
+        print()
+        print("  → you are not required to continue this branch's voice.")
+        print("    refuse at least two of the above moves in your link-draft.")
+        print("    shift the register if you want; the story continues either way.")
+        print("    the reader will keep reading a branch that stays alive more than")
+        print("    one that stays consistent. divergence within continuity is the craft.")
+
 
 def cmd_recap(args):
     if not args:
@@ -452,7 +501,10 @@ def cmd_search(args):
         print("usage: read.py search <query>"); return
     q = " ".join(args)
     data = sprawl.api_get(f"/search?q={q}")
-    for item in data.get("items", []):
+    items = data.get("items", [])
+    if not items:
+        print(f"no links match '{q}'"); return
+    for item in items:
         print(f"{item.get('linkId')}  {(item.get('text') or '')[:100]}")
 
 
@@ -475,7 +527,7 @@ def cmd_entities(args):
 def cmd_entity(args):
     if not args:
         print("usage: read.py entity <id>"); return
-    print(json.dumps(sprawl.api_get(f"/entities/{args[0]}"), indent=2))
+    _print_or_missing(sprawl.api_get(f"/entities/{args[0]}"), f"entity [{args[0]}]")
 
 
 def cmd_arcs(args):
@@ -488,7 +540,7 @@ def cmd_arcs(args):
 def cmd_arc(args):
     if not args:
         print("usage: read.py arc <id>"); return
-    print(json.dumps(sprawl.api_get(f"/arcs/{args[0]}"), indent=2))
+    _print_or_missing(sprawl.api_get(f"/arcs/{args[0]}"), f"arc {{{args[0]}}}")
 
 
 def cmd_mentions(args):
@@ -502,6 +554,9 @@ def cmd_mentions(args):
     else:
         print(f"unknown kind: {kind}"); return
     items = data.get("items", [])
+    if not items:
+        label = f"[{asset_id}]" if kind == "entity" else f"{{{asset_id}}}"
+        print(f"no links mention {label} yet"); return
     for item in items:
         print(f"  link {item.get('linkId')}")
 
@@ -555,7 +610,11 @@ def cmd_owner(args):
         out = sprawl.cast_call("ownerOf(uint8,bytes32)(address)", [kind, key]).strip()
         print(f"owner: {out}")
     except Exception as e:
-        print(f"lookup failed: {e}")
+        if "reverted" in str(e):
+            print(f"{args[0]} {args[1]} has not been collected yet — no on-chain owner.")
+            print(f"  collect it with: python3 write.py collect {args[0]} {args[1]}")
+        else:
+            print(f"lookup failed: {e}")
 
 
 def cmd_price(args):
@@ -567,7 +626,11 @@ def cmd_price(args):
         wei = int(sprawl.cast_call("priceOf(uint8,bytes32)(uint256)", [kind, key]).strip())
         print(f"price: {sprawl.format_eth(wei) if wei else 'not for sale'}")
     except Exception as e:
-        print(f"lookup failed: {e}")
+        if "reverted" in str(e):
+            print(f"{args[0]} {args[1]} has not been collected yet — no listing price.")
+            print(f"  first-sale price (protocol-wide) is set by `firstSalePrice()` on the contract.")
+        else:
+            print(f"lookup failed: {e}")
 
 
 def cmd_sales(args):
