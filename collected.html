@@ -75,13 +75,18 @@
 
   /* Title row pinned at the top of each column, isolated from the feed by
      a horizontal rule. Height locked to --controls-h so it lines up exactly
-     with the homepage's text/tree panel headers. */
+     with the homepage's text/tree panel headers.
+     line-height: 1 on the h2 keeps the text's line box tight to the glyphs,
+     so `align-items: center` visually centers the letters within the 36px
+     band instead of centering a taller line box that leaves the letters
+     sitting above optical center. */
   .col > h2 {
     margin: 0;
     height: var(--controls-h);
     padding: 0 var(--pad);
     display: flex;
     align-items: center;
+    line-height: 1;
     border-bottom: var(--rule) solid var(--fg);
     font-size: var(--font-size);
     font-weight: normal;
