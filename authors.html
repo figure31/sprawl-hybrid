@@ -37,10 +37,26 @@
     border-bottom: var(--rule) solid var(--fg); background: var(--bg);
     z-index: 20;
   }
-  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav.nav-middle { justify-self: center; }
-  .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
   main {
@@ -68,7 +84,14 @@
     <a href="authors.html" class="active">AUTHORS</a>
     <a href="entities.html">ENTITIES</a>
     <a href="arcs.html">ARCS</a>
-    <a href="collected.html">COLLECTED</a>
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -85,11 +108,7 @@
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.referrer && new URL(document.referrer).origin === location.origin) {
-      history.back();
-    } else {
-      location.href = el.getAttribute("href") || "index.html";
-    }
+    location.href = "index.html";
   });
 });
 (function setupTheme() {
@@ -123,51 +142,69 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       return;
     }
 
-    // Bounded-concurrency fetch so a page with many citizens doesn't exceed
-    // the account's Lambda concurrency cap and trigger 500s on the overflow.
-    const statsByAddr = {};
-    await mapLimit(citizens, 3, async c => {
-      try {
-        statsByAddr[c.id] = await SprawlAPI.citizenStats(c.id);
-      } catch { statsByAddr[c.id] = {}; }
-    });
-
-    // Sort by creative contributions (links + entities + arcs), highest first.
-    citizens.sort((a, b) => {
-      const ca = statsByAddr[a.id] || {};
-      const cb = statsByAddr[b.id] || {};
-      const totalA = (ca.totalLinks || 0) + (ca.totalEntities || 0) + (ca.totalArcs || 0);
-      const totalB = (cb.totalLinks || 0) + (cb.totalEntities || 0) + (cb.totalArcs || 0);
-      return totalB - totalA;
-    });
+    // Render immediately, sorted by registration (newest first) — this is
+    // the only ordering we can do without stats in hand. Stats (links /
+    // entities / arcs / votes counts) arrive lazily as each row scrolls
+    // into view via IntersectionObserver, one fetch per row. At scale this
+    // replaces the old `await mapLimit(citizens, 3, ...)` that blocked
+    // first paint on N citizen-stat fetches.
+    citizens.sort((a, b) => Number(b.registeredAt || 0) - Number(a.registeredAt || 0));
 
     document.getElementById("list").innerHTML = citizens.map(c => {
-      const s = statsByAddr[c.id] || {};
-      const links = s.totalLinks    || 0;
-      const ents  = s.totalEntities || 0;
-      const arcs  = s.totalArcs     || 0;
-      const votes = s.totalVotes    || 0;
-      const collected = c.totalCollectedAsCreator || 0;
-      const sales     = c.totalSales     || 0;
-      const buys      = c.totalPurchases || 0;
-
-      const linksLine = `${links} link${links === 1 ? "" : "s"}`;
-      const entsLine  = `${ents} entit${ents === 1 ? "y" : "ies"}`;
-      const arcsLine  = `${arcs} arc${arcs === 1 ? "" : "s"}`;
-      const votesLine = `${votes} vote${votes === 1 ? "" : "s"} cast`;
-      const collectLine = collected
-        ? `${collected} collected${sales || buys ? ` | ${sales} sold | ${buys} bought` : ""}`
-        : (sales || buys ? `${sales} sold | ${buys} bought` : "");
-      const explorerHref = `https://sepolia.etherscan.io/address/${c.id}`;
-      return `<div class="author">
-        <a href="author.html?addr=${encodeURIComponent(c.id)}"><span class="name${c.isBanned ? " banned" : ""}">${escapeHtml(c.name || shortAddr(c.id))}</span></a> <a class="addr" href="${explorerHref}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${escapeHtml(c.id)}</a>
-        <div class="meta">${linksLine}</div>
-        <div class="meta">${entsLine}</div>
-        <div class="meta">${arcsLine}</div>
-        <div class="meta">${votesLine}</div>
+      const collected = c.totalPurchases || 0;
+      const sold      = c.totalSales     || 0;
+      const collectLine = (collected || sold)
+        ? `${collected} COLLECTED | ${sold} SOLD`
+        : "";
+      return `<div class="author" data-addr="${escapeHtml(c.id)}" data-stats="pending">
+        <a href="author.html?addr=${encodeURIComponent(c.id)}"><span class="name${c.isBanned ? " banned" : ""}">${escapeHtml(c.name ? c.name.toUpperCase() : shortAddr(c.id))}</span></a>
+        <div class="meta stats-slot">…</div>
         ${collectLine ? `<div class="meta">${collectLine}</div>` : ""}
       </div>`;
     }).join("");
+
+    // Fetch each row's stats only when its entry enters the viewport. Bounded
+    // to 3 in-flight requests at a time to respect the account's Lambda
+    // concurrency cap; sequence preserved by a small queue.
+    const queue = [];
+    let inFlight = 0;
+    function pump() {
+      while (inFlight < 3 && queue.length) {
+        const job = queue.shift();
+        inFlight++;
+        job().finally(() => { inFlight--; pump(); });
+      }
+    }
+    function fetchStatsFor(el) {
+      const addr = el.dataset.addr;
+      const slot = el.querySelector(".stats-slot");
+      queue.push(async () => {
+        let s = {};
+        try { s = await SprawlAPI.citizenStats(addr) || {}; } catch {}
+        const links = s.totalLinks    || 0;
+        const ents  = s.totalEntities || 0;
+        const arcs  = s.totalArcs     || 0;
+        const votes = s.totalVotes    || 0;
+        slot.innerHTML =
+          `${links} LINK${links === 1 ? "" : "S"}</div>` +
+          `<div class="meta">${ents} ENTIT${ents === 1 ? "Y" : "IES"}</div>` +
+          `<div class="meta">${arcs} ARC${arcs === 1 ? "" : "S"}</div>` +
+          `<div class="meta">${votes} VOTE${votes === 1 ? "" : "S"} CAST`;
+      });
+      pump();
+    }
+
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) {
+        if (!e.isIntersecting) continue;
+        const row = e.target;
+        if (row.dataset.stats !== "pending") continue;
+        row.dataset.stats = "loading";
+        fetchStatsFor(row);
+        io.unobserve(row);
+      }
+    }, { rootMargin: "200px" });
+    document.querySelectorAll(".author").forEach(el => io.observe(el));
   } catch (e) {
     document.getElementById("list").textContent = "Could not load authors: " + e.message;
   }

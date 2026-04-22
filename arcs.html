@@ -50,10 +50,26 @@
     background: var(--bg);
     z-index: 20;
   }
-  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav.nav-middle { justify-self: center; }
-  .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
   main {
@@ -92,7 +108,14 @@
     <a href="authors.html">AUTHORS</a>
     <a href="entities.html">ENTITIES</a>
     <a href="arcs.html" class="active">ARCS</a>
-    <a href="collected.html">COLLECTED</a>
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -112,11 +135,7 @@
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.referrer && new URL(document.referrer).origin === location.origin) {
-      history.back();
-    } else {
-      location.href = el.getAttribute("href") || "index.html";
-    }
+    location.href = "index.html";
   });
 });
 (function setupTheme() {
@@ -143,48 +162,75 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
   }
 
   try {
-    const [resp, citizens] = await Promise.all([
+    const [resp, citizens, collectedArcs] = await Promise.all([
       SprawlAPI.arcs(1000),
       SprawlGraph.citizens(1000),
+      SprawlGraph.collectedAssets(1000, "Arc"),
     ]);
     const arcs = (resp && resp.items) || [];
     const citById = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c]));
+    // arcId → current owner address (only present when collected on-chain).
+    const ownerByArc = new Map(
+      (collectedArcs || []).map(a => [String(a.nativeId), (a.owner || "").toLowerCase()])
+    );
+    const nameByAddr = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c.name]));
+    function collectedByMarkup(arcId) {
+      const ownerAddr = ownerByArc.get(arcId);
+      if (!ownerAddr) return "";
+      const label = nameByAddr[ownerAddr]
+        ? nameByAddr[ownerAddr].toUpperCase()
+        : ownerAddr.slice(0, 6) + "…" + ownerAddr.slice(-4);
+      const href = "author.html?addr=" + encodeURIComponent(ownerAddr);
+      return `COLLECTED BY <a href="${href}">${escapeHtml(label)}</a>`;
+    }
     if (!arcs.length) {
       document.getElementById("list").textContent = "(none yet)";
       return;
     }
 
-    // Bounded-concurrency fetch so a page with many arcs doesn't exceed the
-    // account's Lambda concurrency cap and trigger 500s on the overflow.
-    const refsByArc = {};
-    await mapLimit(arcs, 3, async a => {
-      try {
-        const r = await SprawlAPI.arcReferences(a.arcId, 200);
-        refsByArc[a.arcId] = (r && r.items) || [];
-      } catch { refsByArc[a.arcId] = []; }
-    });
-
     const html = [];
+    const fmt = id => id.length <= 8 ? id : id.slice(0, 10) + "…";
     for (const a of arcs) {
-      const refs = refsByArc[a.arcId] || [];
-      const fmt = id => id.length <= 8 ? id : id.slice(0, 10) + "…";
-      const mentionsHtml = refs.length
-        ? `MENTIONS: ${refs.map(r => `<a href="index.html#link-${r.linkId}">#${fmt(r.linkId)}</a>`).join(", ")}`
-        : "not yet referenced";
       const anchorId = escapeHtml(a.anchorLinkId || "");
       const cit = citById[(a.creator || "").toLowerCase()];
-      const creatorName = cit && cit.name ? cit.name : a.creator;
+      // Uppercase the registered name for site-wide consistency; raw-hex
+      // fallback keeps its natural case.
+      const creatorName = cit && cit.name ? cit.name.toUpperCase() : a.creator;
       const creatorHref = "author.html?addr=" + encodeURIComponent(a.creator);
       const creatorHtml = `<a href="${creatorHref}">${escapeHtml(creatorName)}</a>`;
-      html.push(`<div class="arc">
+      const collectedMeta = collectedByMarkup(a.arcId);
+      // References deferred until click to avoid one API call per arc at
+      // page load. Click handler below replaces the placeholder in place.
+      html.push(`<div class="arc" data-arc-id="${escapeHtml(a.arcId)}">
         <div class="id">{${escapeHtml(a.arcId)}}</div>
         ${a.description ? `<div class="desc">${escapeHtml(a.description)}</div>` : ""}
         <div class="meta">BY ${creatorHtml}</div>
         <div class="meta">ANCHORED AT <a href="index.html#link-${anchorId}">#${fmt(anchorId)}</a></div>
-        <div class="meta">${mentionsHtml}</div>
+        ${collectedMeta ? `<div class="meta">${collectedMeta}</div>` : ""}
+        <div class="meta references-row"><a class="references-toggle" href="#">MENTIONS: show</a></div>
       </div>`);
     }
     document.getElementById("list").innerHTML = html.join("") || "(none yet)";
+
+    // Lazy references: fetch only when the user expands a row.
+    document.getElementById("list").addEventListener("click", async (ev) => {
+      const toggle = ev.target.closest(".references-toggle");
+      if (!toggle) return;
+      ev.preventDefault();
+      const row = toggle.closest(".references-row");
+      const arcId = toggle.closest(".arc").dataset.arcId;
+      if (!arcId) return;
+      row.textContent = "MENTIONS: loading…";
+      try {
+        const resp = await SprawlAPI.arcReferences(arcId, 200);
+        const refs = (resp && resp.items) || [];
+        row.innerHTML = refs.length
+          ? `MENTIONS: ${refs.map(r => `<a href="index.html#link-${r.linkId}">#${fmt(r.linkId)}</a>`).join(", ")}`
+          : "not yet referenced";
+      } catch (err) {
+        row.textContent = "could not load mentions";
+      }
+    });
   } catch (e) {
     document.getElementById("list").textContent = "Could not load arcs: " + e.message;
   }

@@ -50,10 +50,26 @@
     background: var(--bg);
     z-index: 20;
   }
-  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav.nav-middle { justify-self: center; }
-  .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
   main {
@@ -89,7 +105,14 @@
     <a href="authors.html">AUTHORS</a>
     <a href="entities.html" class="active">ENTITIES</a>
     <a href="arcs.html">ARCS</a>
-    <a href="collected.html">COLLECTED</a>
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -106,11 +129,7 @@
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.referrer && new URL(document.referrer).origin === location.origin) {
-      history.back();
-    } else {
-      location.href = el.getAttribute("href") || "index.html";
-    }
+    location.href = "index.html";
   });
 });
 (function setupTheme() {
@@ -137,27 +156,32 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
   }
 
   try {
-    const [resp, citizens] = await Promise.all([
+    const [resp, citizens, collectedEnts] = await Promise.all([
       SprawlAPI.entities(1000),
       SprawlGraph.citizens(1000),
+      SprawlGraph.collectedAssets(1000, "Entity"),
     ]);
     const entities = (resp && resp.items) || [];
     const citById = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c]));
+    // entityId → current owner address (only present when collected on-chain).
+    const ownerByEntity = new Map(
+      (collectedEnts || []).map(a => [String(a.nativeId), (a.owner || "").toLowerCase()])
+    );
+    // Helper to resolve an owner address to a clickable display name.
+    const nameByAddr = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c.name]));
+    function collectedByMarkup(entityId) {
+      const ownerAddr = ownerByEntity.get(entityId);
+      if (!ownerAddr) return "";
+      const label = nameByAddr[ownerAddr]
+        ? nameByAddr[ownerAddr].toUpperCase()
+        : ownerAddr.slice(0, 6) + "…" + ownerAddr.slice(-4);
+      const href = "author.html?addr=" + encodeURIComponent(ownerAddr);
+      return `COLLECTED BY <a href="${href}">${escapeHtml(label)}</a>`;
+    }
     if (!entities.length) {
       document.getElementById("list").textContent = "(none yet)";
       return;
     }
-
-    // Fetch mention rows per entity with bounded concurrency so a page with
-    // many entities doesn't exceed the account's Lambda concurrency cap and
-    // trigger 500s on the overflow.
-    const mentionsByEntity = {};
-    await mapLimit(entities, 3, async e => {
-      try {
-        const m = await SprawlAPI.entityMentions(e.entityId, 200);
-        mentionsByEntity[e.entityId] = (m && m.items) || [];
-      } catch { mentionsByEntity[e.entityId] = []; }
-    });
 
     // Group by type, sort alphabetically within each group.
     const byType = { character: [], place: [], object: [], event: [] };
@@ -172,24 +196,48 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       if (!byType[t].length) continue;
       html.push(`<h3>${labels[t]}</h3>`);
       for (const e of byType[t]) {
-        const mentions = mentionsByEntity[e.entityId] || [];
-        const fmt = id => id.length <= 8 ? id : id.slice(0, 10) + "…";
-        const mentionsHtml = mentions.length
-          ? `MENTIONS: ${mentions.map(m => `<a href="index.html#link-${m.linkId}">#${fmt(m.linkId)}</a>`).join(", ")}`
-          : "not yet mentioned";
         const cit = citById[(e.creator || "").toLowerCase()];
-        const creatorName = cit && cit.name ? cit.name : e.creator;
+        // Uppercase the registered name for site-wide consistency; raw-hex
+        // fallback keeps its natural case.
+        const creatorName = cit && cit.name ? cit.name.toUpperCase() : e.creator;
         const creatorHref = "author.html?addr=" + encodeURIComponent(e.creator);
         const creatorHtml = `<a href="${creatorHref}">${escapeHtml(creatorName)}</a>`;
-        html.push(`<div class="entity">
+        const collectedMeta = collectedByMarkup(e.entityId);
+        // Mentions are deferred until the user clicks — fetching one call per
+        // entity at page load doesn't scale. The placeholder's click handler
+        // (bound below) replaces itself with the fetched list.
+        html.push(`<div class="entity" data-entity-id="${escapeHtml(e.entityId)}">
           <div class="name">${escapeHtml(e.name)}</div>
           ${e.description ? `<div class="desc">${escapeHtml(e.description)}</div>` : ""}
           <div class="meta">BY ${creatorHtml}</div>
-          <div class="meta">${mentionsHtml}</div>
+          ${collectedMeta ? `<div class="meta">${collectedMeta}</div>` : ""}
+          <div class="meta mentions-row"><a class="mentions-toggle" href="#">MENTIONS: show</a></div>
         </div>`);
       }
     }
     document.getElementById("list").innerHTML = html.join("") || "(none yet)";
+
+    // Lazy mentions: one click → one fetch → list replaces the placeholder.
+    // Keeps the first paint at one API call total (the entities list itself).
+    document.getElementById("list").addEventListener("click", async (ev) => {
+      const toggle = ev.target.closest(".mentions-toggle");
+      if (!toggle) return;
+      ev.preventDefault();
+      const row = toggle.closest(".mentions-row");
+      const entityId = toggle.closest(".entity").dataset.entityId;
+      if (!entityId) return;
+      row.textContent = "MENTIONS: loading…";
+      try {
+        const resp = await SprawlAPI.entityMentions(entityId, 200);
+        const mentions = (resp && resp.items) || [];
+        const fmt = id => id.length <= 8 ? id : id.slice(0, 10) + "…";
+        row.innerHTML = mentions.length
+          ? `MENTIONS: ${mentions.map(m => `<a href="index.html#link-${m.linkId}">#${fmt(m.linkId)}</a>`).join(", ")}`
+          : "not yet mentioned";
+      } catch (err) {
+        row.textContent = "could not load mentions";
+      }
+    });
   } catch (e) {
     document.getElementById("list").textContent = "Could not load entities: " + e.message;
   }

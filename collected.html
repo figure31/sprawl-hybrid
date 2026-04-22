@@ -52,10 +52,26 @@
     background: var(--bg);
     z-index: 20;
   }
-  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav.nav-middle { justify-self: center; }
-  .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
   /* Three equal-width columns filling the viewport, separated by rules. */
@@ -142,7 +158,14 @@
     <a href="authors.html">AUTHORS</a>
     <a href="entities.html">ENTITIES</a>
     <a href="arcs.html">ARCS</a>
-    <a href="collected.html" class="active">COLLECTED</a>
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html" class="active">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -170,11 +193,7 @@
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.referrer && new URL(document.referrer).origin === location.origin) {
-      history.back();
-    } else {
-      location.href = el.getAttribute("href") || "index.html";
-    }
+    location.href = "index.html";
   });
 });
 (function setupTheme() {
@@ -229,12 +248,14 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
   }
 
   // nameByAddr populated once upfront; used to show usernames wherever we'd
-  // otherwise only have a hex address.
+  // otherwise only have a hex address. Names are rendered in all-caps to
+  // match the site's display convention for author names; the short-address
+  // fallback keeps its natural hex casing so "0xabc…" doesn't turn into "0XABC…".
   let nameByAddr = {};
   function displayName(addr) {
     const a = (addr || "").toLowerCase();
     const n = nameByAddr[a];
-    return n ? n : shortAddr(addr);
+    return n ? n.toUpperCase() : shortAddr(addr);
   }
 
   // Graphql helper (collected.html runs its own queries; keeps sprawl-data.js lean)
@@ -262,11 +283,32 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     }
   }
 
+  // Shared scroll-sentinel helper. Each column calls it after rendering with
+  // a callback that bumps its own limit + re-renders. The column's scroll
+  // container is `.col-body`, so we observe from that root and fire when the
+  // sentinel enters its viewport.
+  function attachLoadMore(bodyEl, onLoadMore) {
+    const existing = bodyEl.querySelector(".load-sentinel");
+    if (existing) existing.remove();
+    const sentinel = document.createElement("div");
+    sentinel.className = "load-sentinel";
+    sentinel.style.height = "1px";
+    bodyEl.appendChild(sentinel);
+    const io = new IntersectionObserver(async (entries) => {
+      if (!entries.some(e => e.isIntersecting)) return;
+      io.unobserve(sentinel);
+      await onLoadMore();
+    }, { root: bodyEl, rootMargin: "200px" });
+    io.observe(sentinel);
+  }
+
+  // — Collectors column — scrolls independently; paginates in bumps of 50.
+  let collectorsLimit = 50;
   async function renderCollectors() {
     const el = document.getElementById("collectors-body");
     try {
       const data = await query(`{
-        collectedAssets(first: 1000, orderBy: collectedAt, orderDirection: desc) {
+        collectedAssets(first: ${collectorsLimit}, orderBy: collectedAt, orderDirection: desc) {
           id kind nativeId owner collectedAt
           creator { id name }
         }
@@ -274,8 +316,6 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const assets = data.collectedAssets || [];
       if (!assets.length) { el.innerHTML = `<div class="empty">(nothing collected yet)</div>`; return; }
 
-      // Group by current owner. Rank owners by holding count (desc); ties by
-      // most-recent collectedAt so active collectors float up.
       const byOwner = {};
       for (const a of assets) {
         const k = (a.owner || "").toLowerCase();
@@ -294,7 +334,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const items = byOwner[addr];
         const name = nameByAddr[addr];
         const label = name
-          ? `<a href="${authorHref(addr)}">${escapeHtml(name)}</a> <span class="meta">${shortAddr(addr)}</span>`
+          ? `<a href="${authorHref(addr)}">${escapeHtml(name.toUpperCase())}</a> <span class="meta">${shortAddr(addr)}</span>`
           : `<a href="${authorHref(addr)}">${shortAddr(addr)}</a>`;
         html.push(`<h3>${label} <span class="meta">(${items.length})</span></h3>`);
         for (const a of items) {
@@ -307,16 +347,20 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         }
       }
       el.innerHTML = html.join("");
+      if (assets.length >= collectorsLimit) {
+        attachLoadMore(el, async () => { collectorsLimit += 50; await renderCollectors(); });
+      }
     } catch (e) {
       el.textContent = `could not load: ${e.message}`;
     }
   }
 
+  let salesLimit = 50;
   async function renderSales() {
     const el = document.getElementById("sales-body");
     try {
       const data = await query(`{
-        sales(first: 100, orderBy: timestamp, orderDirection: desc) {
+        sales(first: ${salesLimit}, orderBy: timestamp, orderDirection: desc) {
           id firstSale price seller buyer timestamp
           asset { kind nativeId creator { id name } }
         }
@@ -327,28 +371,39 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const html = [];
       for (const s of sales) {
         const a = s.asset || {};
-        const tag  = s.firstSale ? "FIRST SALE" : "RESALE";
-        const when = new Date(Number(s.timestamp) * 1000).toISOString().slice(0, 10);
+        const tag = s.firstSale ? "FIRST SALE" : "RESALE";
+        // Sale.id is "{txhash}-{logindex}" per the subgraph schema. Split to
+        // get the raw tx hash; link it to the Sepolia explorer so anyone can
+        // inspect the on-chain record directly.
+        const txHash = (s.id || "").split("-")[0];
+        const txShort = txHash ? txHash.slice(0, 10) + "…" + txHash.slice(-4) : "";
+        const txLink = txHash
+          ? `<a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank" rel="noopener">${txShort}</a>`
+          : "";
         html.push(`<div class="row">
           <div>
             <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
             <span class="price">${formatEth(s.price)}</span>
           </div>
-          <div class="meta">${tag} · ${when}</div>
+          <div class="meta">${tag} · ${txLink}</div>
           <div class="meta"><a href="${authorHref(s.seller)}">${escapeHtml(displayName(s.seller))}</a> → <a href="${authorHref(s.buyer)}">${escapeHtml(displayName(s.buyer))}</a></div>
         </div>`);
       }
       el.innerHTML = html.join("");
+      if (sales.length >= salesLimit) {
+        attachLoadMore(el, async () => { salesLimit += 50; await renderSales(); });
+      }
     } catch (e) {
       el.textContent = `could not load: ${e.message}`;
     }
   }
 
+  let listingsLimit = 50;
   async function renderListings() {
     const el = document.getElementById("listings-body");
     try {
       const data = await query(`{
-        listings(first: 100, where: { price_gt: "0" }, orderBy: updatedAt, orderDirection: desc) {
+        listings(first: ${listingsLimit}, where: { price_gt: "0" }, orderBy: updatedAt, orderDirection: desc) {
           id price owner updatedAt
           asset { kind nativeId creator { id name } }
         }
@@ -371,6 +426,9 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         </div>`);
       }
       el.innerHTML = html.join("");
+      if (listings.length >= listingsLimit) {
+        attachLoadMore(el, async () => { listingsLimit += 50; await renderListings(); });
+      }
     } catch (e) {
       el.textContent = `could not load: ${e.message}`;
     }

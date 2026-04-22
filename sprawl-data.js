@@ -60,14 +60,20 @@
     linkContext:   (id)        => rest(`/links/${id}/context`),
     recentLinks:   (lim=50)    => rest(`/feed/recent-links?limit=${lim}`),
     byAuthor:      (a,lim=50)  => rest(`/feed/by-author/${a.toLowerCase()}?limit=${lim}`),
+    // Lean link metadata for tree rendering (no text body). Paired with
+    // linkContext(id) when the user selects a link — that's when we pay
+    // the cost of pulling the full ancestry's text.
+    feedTree:      (lim=500)   => rest(`/feed/tree?limit=${lim}`),
     entity:        (id)        => rest(`/entities/${encodeURIComponent(id)}`),
     entities:      (lim=200)   => rest(`/entities?limit=${lim}`),
     entityByType:  (t,lim=50)  => rest(`/entities/by-type/${encodeURIComponent(t)}?limit=${lim}`),
     entityMentions:(id,lim=50) => rest(`/entities/${encodeURIComponent(id)}/mentions?limit=${lim}`),
+    entitiesByCreator: (a,lim=200) => rest(`/entities/by-creator/${a.toLowerCase()}?limit=${lim}`),
     arc:           (id)        => rest(`/arcs/${encodeURIComponent(id)}`),
     arcs:          (lim=200)   => rest(`/arcs?limit=${lim}`),
     arcByAnchor:   (l,lim=50)  => rest(`/arcs/by-anchor/${l}?limit=${lim}`),
     arcReferences: (id,lim=50) => rest(`/arcs/${encodeURIComponent(id)}/references?limit=${lim}`),
+    arcsByCreator: (a,lim=200) => rest(`/arcs/by-creator/${a.toLowerCase()}?limit=${lim}`),
     votesByLink:   (id,lim=50) => rest(`/votes/by-link/${id}?limit=${lim}`),
     votesByVoter:  (a,lim=50)  => rest(`/votes/by-voter/${a.toLowerCase()}?limit=${lim}`),
     stats:         ()          => rest(`/stats/global`),
@@ -91,12 +97,28 @@
       return citizen;
     },
     async citizens(first = 100) {
+      // The full citizens list is fetched by almost every page just to
+      // resolve address → name. It changes only on register / rename / ban
+      // events, so a short session cache costs almost nothing and cuts a
+      // whole GraphQL round-trip per navigation.
+      const cacheKey = `sprawl.citizens.${first}`;
+      const TTL_MS   = 60_000;
+      try {
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) {
+          const { t, v } = JSON.parse(cached);
+          if (Date.now() - t < TTL_MS) return v;
+        }
+      } catch { /* storage disabled — fall through to network */ }
       const { citizens } = await graphql(
         `query($n: Int!) {
           citizens(first: $n, orderBy: registeredAt, orderDirection: desc) {
             id name isBanned registeredAt totalCollectedAsCreator totalSales totalPurchases
           }
         }`, { n: first });
+      try {
+        sessionStorage.setItem(cacheKey, JSON.stringify({ t: Date.now(), v: citizens }));
+      } catch { /* storage full / disabled — skip cache */ }
       return citizens;
     },
 

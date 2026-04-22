@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://d1pdbr4fdk59bz.cloudfront.net" crossorigin>
+<link rel="preconnect" href="https://api.goldsky.com" crossorigin>
+<title>Sprawl — Feed</title>
+<script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal; font-style: normal; font-display: swap;
+  }
+  :root {
+    --fg: #000; --bg: #fff; --mute: #888;
+    --rule: 1px; --pad: 12px; --topbar-h: 44px;
+    --font-size: 13px; --line-height: 1.5;
+  }
+  html.dark { --fg: #fff; --bg: #000; }
+  * { box-sizing: border-box; font-size: inherit; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size); line-height: var(--line-height);
+    min-height: 100%;
+  }
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  .topbar {
+    position: fixed; top: 0; left: 0; right: 0; height: var(--topbar-h);
+    display: grid; grid-template-columns: 1fr auto 1fr; align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg); background: var(--bg);
+    z-index: 20;
+  }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
+  .topbar nav { display: flex; gap: 18px; }
+  .topbar nav a.active { text-decoration: underline; }
+
+  main {
+    max-width: 820px; margin: 0 auto;
+    padding: calc(var(--topbar-h) + 24px) var(--pad) 48px;
+  }
+
+  .event { margin-bottom: 10px; }
+  .event .when   { color: var(--mute); letter-spacing: 0.04em; margin-right: 6px; }
+  .event .actor  { letter-spacing: 0.04em; }
+  .event .verb   { color: var(--mute); }
+  .event .target { }
+  .event .detail { color: var(--mute); margin-left: 6px; letter-spacing: 0.04em; }
+  .empty { color: var(--mute); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="title" href="index.html">SPRAWL</a>
+  <nav class="nav-feed">
+    <a href="feed.html" class="active">FEED</a>
+  </nav>
+  <nav class="nav-middle">
+    <a href="authors.html">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html">ARCS</a>
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<main>
+  <div id="feed">loading…</div>
+</main>
+
+<script>
+document.querySelectorAll(".topbar nav a.active").forEach(el => {
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    location.href = "index.html";
+  });
+});
+(function setupTheme() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
+  sync();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+    sync();
+  });
+})();
+</script>
+<script src="sprawl-data.js"></script>
+<script>
+(async () => {
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]
+    ));
+  }
+  function shortAddr(a) { return (a || "").slice(0,6) + "…" + (a || "").slice(-4); }
+  function snippet(text, n) {
+    const s = (text || "").replace(/\s+/g, " ").trim();
+    return s.length <= n ? s : s.slice(0, n - 1) + "…";
+  }
+  function formatEth(weiStr) {
+    const wei = BigInt(weiStr || "0");
+    if (wei === 0n) return "0 ETH";
+    const whole = wei / 10n ** 18n;
+    const frac  = wei % 10n ** 18n;
+    const fracStr = frac.toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
+    return fracStr ? `${whole}.${fracStr} ETH` : `${whole} ETH`;
+  }
+  function relativeTime(tsSec) {
+    const now = Math.floor(Date.now() / 1000);
+    let d = now - Number(tsSec);
+    if (d < 0) d = 0;
+    if (d < 60)          return `${d}s`;
+    if (d < 3600)        return `${Math.floor(d / 60)}m`;
+    if (d < 86400)       return `${Math.floor(d / 3600)}h`;
+    if (d < 86400 * 30)  return `${Math.floor(d / 86400)}d`;
+    if (d < 86400 * 365) return `${Math.floor(d / 86400 / 30)}mo`;
+    return `${Math.floor(d / 86400 / 365)}y`;
+  }
+
+  // Direct Goldsky query keeps sprawl-data.js lean.
+  const GQL = "https://api.goldsky.com/api/public/project_cmo4yujy1v9de01zhfzy88sqs/subgraphs/sprawl-hybrid/0.1.0/gn";
+  async function gql(q) {
+    const r = await fetch(GQL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    if (!r.ok) throw new Error(`subgraph: ${r.status}`);
+    const body = await r.json();
+    if (body.errors) throw new Error(JSON.stringify(body.errors));
+    return body.data;
+  }
+
+  // Address → registered name. Populated once, used everywhere we display an
+  // address. Names rendered uppercase to match the site-wide convention.
+  const nameByAddr = {};
+  function actorLabel(addr) {
+    const key = (addr || "").toLowerCase();
+    const n = nameByAddr[key];
+    return n ? n.toUpperCase() : shortAddr(addr);
+  }
+  function actorLink(addr) {
+    return `<a class="actor" href="author.html?addr=${encodeURIComponent(addr)}">${escapeHtml(actorLabel(addr))}</a>`;
+  }
+  function assetHref(kind, nativeId) {
+    if (kind === "Link" || kind === "link")   return `index.html#link-${encodeURIComponent(nativeId)}`;
+    if (kind === "Entity" || kind === "entity") return `entities.html`;
+    if (kind === "Arc"    || kind === "arc")    return `arcs.html`;
+    return "#";
+  }
+  function assetLabel(kind, nativeId) {
+    const k = (kind || "").toLowerCase();
+    if (k === "link")   return `#${escapeHtml(String(nativeId))}`;
+    if (k === "entity") return `[${escapeHtml(String(nativeId))}]`;
+    if (k === "arc")    return `{${escapeHtml(String(nativeId))}}`;
+    return escapeHtml(String(nativeId));
+  }
+
+  // Infinite-scroll state. `perSourceLimit` is how many items we ask each
+  // source for; scroll-to-bottom bumps it by 50 and re-fetches. At modest
+  // scale the re-fetch is cheap; we can switch to cursor-based pagination
+  // per source later if the per-source lists grow past a few thousand.
+  let perSourceLimit = 50;
+  let loading = false;
+
+  async function fetchAndRender() {
+    loading = true;
+    try {
+  // Pull everything in parallel. On-chain via Goldsky, off-chain via our API.
+  // Each source capped at perSourceLimit so we bound the payload cleanly.
+    const [onchainData, recentLinks, entitiesResp, arcsResp] = await Promise.all([
+      gql(`{
+        citizens(first: ${perSourceLimit}, orderBy: registeredAt, orderDirection: desc) {
+          id name registeredAt
+        }
+        sales(first: ${perSourceLimit}, orderBy: timestamp, orderDirection: desc) {
+          id firstSale price seller buyer timestamp
+          asset { kind nativeId }
+        }
+        listings(first: ${perSourceLimit}, orderBy: updatedAt, orderDirection: desc, where: { price_gt: "0" }) {
+          id price owner updatedAt
+          asset { kind nativeId }
+        }
+      }`),
+      SprawlAPI.recentLinks(perSourceLimit),
+      SprawlAPI.entities(perSourceLimit),
+      SprawlAPI.arcs(perSourceLimit),
+    ]);
+
+    const citizens = onchainData.citizens || [];
+    const sales    = onchainData.sales    || [];
+    const listings = onchainData.listings || [];
+    const links    = (recentLinks  && recentLinks.items)  || [];
+    const ents     = (entitiesResp && entitiesResp.items) || [];
+    const arcs     = (arcsResp     && arcsResp.items)     || [];
+
+    // Build name map first so every event can resolve addresses.
+    for (const c of citizens) nameByAddr[c.id.toLowerCase()] = c.name;
+
+    // Normalize every source into a common event shape:
+    //   { ts, kind, html }
+    const events = [];
+
+    // — Registrations —
+    for (const c of citizens) {
+      events.push({
+        ts: Number(c.registeredAt),
+        kind: "register",
+        html: `${actorLink(c.id)} <span class="verb">registered as</span> <span class="target">${escapeHtml(c.name)}</span>`,
+      });
+    }
+
+    // — Off-chain writes: links, recaps —
+    for (const l of links) {
+      const verb = l.isRecap ? "posted a recap" : "wrote";
+      const href = `index.html#link-${encodeURIComponent(l.linkId)}`;
+      const preview = l.text ? `<span class="detail">${escapeHtml(snippet(l.text, 60))}</span>` : "";
+      events.push({
+        ts: Number(l.createdAt || l.authoredAt),
+        kind: l.isRecap ? "recap" : "link",
+        html: `${actorLink(l.author)} <span class="verb">${verb}</span> <a class="target" href="${href}">#${escapeHtml(l.linkId)}</a>${preview}`,
+      });
+    }
+
+    // — Off-chain entity creations —
+    for (const e of ents) {
+      events.push({
+        ts: Number(e.createdAt || e.authoredAt),
+        kind: "entity",
+        html: `${actorLink(e.creator)} <span class="verb">defined entity</span> <a class="target" href="entities.html">[${escapeHtml(e.entityId)}]</a> <span class="detail">${escapeHtml((e.entityType || "").toUpperCase())}</span>`,
+      });
+    }
+
+    // — Off-chain arc creations —
+    for (const a of arcs) {
+      events.push({
+        ts: Number(a.createdAt || a.authoredAt),
+        kind: "arc",
+        html: `${actorLink(a.creator)} <span class="verb">planted arc</span> <a class="target" href="arcs.html">{${escapeHtml(a.arcId)}}</a>${a.anchorLinkId != null ? ` <span class="detail">anchored at <a href="index.html#link-${encodeURIComponent(a.anchorLinkId)}">#${escapeHtml(String(a.anchorLinkId))}</a></span>` : ""}`,
+      });
+    }
+
+    // — On-chain sales (first-sale collects and resales) —
+    for (const s of sales) {
+      const a = s.asset || {};
+      const verb = s.firstSale ? "collected" : "bought";
+      // On first sale, seller is address(this) — the protocol. Skip showing it.
+      // On resale, buyer purchased from seller.
+      const price = `<span class="detail">${formatEth(s.price)}</span>`;
+      const targ  = `<a class="target" href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>`;
+      const sellerBit = s.firstSale ? "" : ` <span class="verb">from</span> ${actorLink(s.seller)}`;
+      events.push({
+        ts: Number(s.timestamp),
+        kind: s.firstSale ? "collect" : "buy",
+        html: `${actorLink(s.buyer)} <span class="verb">${verb}</span> ${targ}${sellerBit}${price}`,
+      });
+    }
+
+    // — On-chain listings —
+    for (const l of listings) {
+      const a = l.asset || {};
+      const targ = `<a class="target" href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>`;
+      events.push({
+        ts: Number(l.updatedAt),
+        kind: "list",
+        html: `${actorLink(l.owner)} <span class="verb">listed</span> ${targ} <span class="detail">${formatEth(l.price)}</span>`,
+      });
+    }
+
+    // Sort newest first. Display cap scales with the fetched limit so a
+    // "load more" pass actually reveals new events instead of just growing
+    // the in-memory pool.
+    events.sort((a, b) => b.ts - a.ts);
+    const top = events.slice(0, perSourceLimit * 6);
+
+    const feedEl = document.getElementById("feed");
+    if (!top.length) {
+      feedEl.innerHTML = `<div class="empty">(nothing has happened yet)</div>`;
+      return;
+    }
+
+    feedEl.innerHTML = top
+      .map(e => `<div class="event">${e.html}</div>`)
+      .join("") + `<div id="feed-sentinel" style="height: 1px;"></div>`;
+
+    // Scroll-to-bottom trigger: bump the per-source fetch size by 50 and
+    // re-run the whole fetch. Re-fetches are cheap at testnet scale; if
+    // sources grow past a few thousand items we'd switch to proper cursor
+    // pagination per source.
+    const sentinel = document.getElementById("feed-sentinel");
+    if (sentinel) {
+      const io = new IntersectionObserver(async (entries) => {
+        if (!entries.some(e => e.isIntersecting)) return;
+        if (loading) return;
+        io.unobserve(sentinel);
+        perSourceLimit += 50;
+        await fetchAndRender();
+      }, { rootMargin: "400px" });
+      io.observe(sentinel);
+    }
+    } catch (e) {
+      document.getElementById("feed").textContent = "Could not load feed: " + e.message;
+    } finally {
+      loading = false;
+    }
+  }
+
+  await fetchAndRender();
+})();
+</script>
+
+</body>
+</html>

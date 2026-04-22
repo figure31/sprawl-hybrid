@@ -70,11 +70,28 @@
     background: var(--bg);
     z-index: 20;
   }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
   .topbar .title-group {
     display: flex;
     align-items: center;
     gap: 24px;
-    justify-self: start;
   }
   .topbar .title { letter-spacing: 0.08em; }
   .topbar .stats {
@@ -83,21 +100,8 @@
   }
   .topbar .stats span { color: var(--fg); margin-right: 4px; }
   .topbar nav { display: flex; gap: 18px; align-items: center; }
-  .topbar .nav-middle { justify-self: center; }
-  .topbar .nav-right  { justify-self: end; }
-  .topbar #search {
-    font-family: inherit;
-    font-size: inherit;
-    border: none;
-    border-bottom: var(--rule) solid var(--fg);
-    background: transparent;
-    color: var(--fg);
-    padding: 2px 2px;
-    width: 72px;
-    outline: none;
-    letter-spacing: 0.04em;
-  }
-  .topbar #search::placeholder { color: var(--mute); }
+  .topbar .nav-middle { }
+  .topbar .nav-right  { }
 
   /* Two-column layout: text on the left, tree on the right. Entities used
      to live in a third column; they're now hover-tooltips on the text. */
@@ -181,7 +185,7 @@
     right: auto;
     transform: translateX(-50%);
     background: var(--bg);
-    color: var(--mute);
+    color: var(--fg);
     letter-spacing: 0.04em;
     padding: 0;
     z-index: 2;
@@ -195,6 +199,24 @@
   /* Path stats readout on the left of the text panel's control row. Grey
      and quiet, matching the other readouts/buttons. */
   #text-path-stats { color: var(--mute); letter-spacing: 0.04em; }
+
+  /* The #id in the tree panel's top band is clickable — readers can click
+     it to type any id and jump. Cursor hint + invisible underline match
+     the other link styling on the page. */
+  #tree-node-info .id-jump { cursor: pointer; }
+  #tree-node-info .id-jump:hover { text-decoration: underline; }
+  #tree-node-info input.id-jump-input {
+    background: transparent;
+    border: none;
+    border-bottom: var(--rule) solid var(--fg);
+    color: var(--fg);
+    font: inherit;
+    letter-spacing: inherit;
+    text-align: center;
+    width: 80px;
+    outline: none;
+    padding: 0 2px;
+  }
 
   /* (h2 headings are no longer used in the panels; kept no styles here.) */
 
@@ -305,9 +327,7 @@
   }
   #entity-tooltip.visible { display: block; }
   #entity-tooltip .tip-head { margin-bottom: 4px; }
-  #entity-tooltip .tip-type { color: var(--mute); margin-left: 8px; letter-spacing: 0.04em; }
-
-</style>
+  #entity-tooltip .tip-type { color: var(--mute); margin-left: 8px; letter-spacing: 0.04em; }</style>
 </head>
 <body>
 
@@ -320,8 +340,14 @@
     <a href="authors.html">AUTHORS</a>
     <a href="entities.html">ENTITIES</a>
     <a href="arcs.html">ARCS</a>
-    <a href="collected.html">COLLECTED</a>
-    <input id="search" type="text" placeholder="#" spellcheck="false" autocomplete="off">
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -381,6 +407,11 @@
     hoverId: null,
     view: { x: 0, y: 0, w: 0, h: 0 },
     nodePositions: {},
+    // Collection state. Populated in loadAll from Goldsky. Used to:
+    //  - render collected nodes as squares in the tree (vs circles otherwise)
+    //  - append `COLLECTED BY <owner>` to the text-column meta line
+    collectedLinkOwner: new Map(),   // linkId → owner address
+    nameByAddr: new Map(),           // address → registered name (for display)
   };
 
   // How many ancestors to frame after a click. The user can wheel-zoom out to
@@ -395,14 +426,29 @@
   // citizen names and on-chain state). Normalizes API data into the
   // subgraph-shape the rest of this page expects.
   async function loadAll() {
-    const [linksResp, entsResp, citizens] = await Promise.all([
-      SprawlAPI.recentLinks(2000),
+    // Tree metadata only — no text body. Link text is fetched lazily when
+    // a reader selects a link (via /links/{id}/context, which also returns
+    // the full ancestry in one call). At scale this cuts the initial
+    // payload roughly 10x (was 2000 full links ≈ 2MB of text; now ~100
+    // bytes per row, so the same 2000 links is ~200KB).
+    const [linksResp, entsResp, citizens, collectedLinks] = await Promise.all([
+      SprawlAPI.feedTree(2000),
       SprawlAPI.entities(1000),
       SprawlGraph.citizens(1000),
+      SprawlGraph.collectedAssets(1000, "Link"),
     ]);
     const rawLinks = (linksResp && linksResp.items) || [];
     const rawEnts  = (entsResp  && entsResp.items)  || [];
     const citById  = Object.fromEntries((citizens || []).map(c => [c.id.toLowerCase(), c]));
+
+    // Populate collection + name maps on state so renderers can resolve
+    // `linkId → owner` and `owner-address → username` cheaply.
+    state.collectedLinkOwner = new Map(
+      (collectedLinks || []).map(a => [String(a.nativeId), (a.owner || "").toLowerCase()])
+    );
+    state.nameByAddr = new Map(
+      (citizens || []).map(c => [c.id.toLowerCase(), c.name])
+    );
 
     // Reshape each link into the legacy "subgraph" shape so the rendering
     // code below works unchanged.
@@ -664,13 +710,28 @@
       const cx = xToPx(n.x), cy = yToPx(n.depth);
       state.nodePositions[n.id] = { x: cx, y: cy };
 
-      const c = document.createElementNS(NS, "circle");
-      c.setAttribute("cx", cx); c.setAttribute("cy", cy);
-      c.setAttribute("r", nodeR);
-      c.setAttribute("class", "node");
+      // Collected links render as squares; uncollected stay as circles.
+      // Both carry class="node" + data-id so updateTreeSelection's bulk
+      // selector (`circle.node, rect.node`) treats them identically.
+      const collected = state.collectedLinkOwner.has(n.id);
+      let c;
+      if (collected) {
+        c = document.createElementNS(NS, "rect");
+        c.setAttribute("x", cx - nodeR);
+        c.setAttribute("y", cy - nodeR);
+        c.setAttribute("width",  nodeR * 2);
+        c.setAttribute("height", nodeR * 2);
+      } else {
+        c = document.createElementNS(NS, "circle");
+        c.setAttribute("cx", cx); c.setAttribute("cy", cy);
+        c.setAttribute("r", nodeR);
+      }
+      c.setAttribute("class", collected ? "node collected" : "node");
       c.dataset.id = n.id;
       const title = document.createElementNS(NS, "title");
-      title.textContent = `link ${n.id} | by ${n.author.name} | ${n.voteCount}`;
+      const ownerAddr = state.collectedLinkOwner.get(n.id);
+      const ownerHint = ownerAddr ? ` | collected by ${state.nameByAddr.get(ownerAddr) || ownerAddr.slice(0,6)}` : "";
+      title.textContent = `link ${n.id} | by ${n.author.name} | ${n.voteCount}${ownerHint}`;
       c.appendChild(title);
       svg.appendChild(c);
 
@@ -846,15 +907,28 @@
     );
     const highlightId = state.hoverId || state.selectedId;
     const r = state.nodeR || 4;
-    svg.querySelectorAll("circle.node").forEach(el => {
+    // Nodes come in two shapes: circles (uncollected) and rects (collected).
+    // Both carry class="node" and share the same in-path / selected classes;
+    // the size attributes differ per shape.
+    svg.querySelectorAll(".node").forEach(el => {
       const id = el.dataset.id;
       const inPath = ancestryIds.has(id);
       const isSelected = id === highlightId;
       el.classList.toggle("in-path", inPath);
       el.classList.toggle("selected", isSelected);
-      // Every node along the selected path is 1.5x baseline (the selected
-      // node is also filled). Off-path nodes stay at baseline size.
-      el.setAttribute("r", (inPath || isSelected) ? r * 1.5 : r);
+      const size = (inPath || isSelected) ? r * 1.5 : r;
+      if (el.tagName === "rect") {
+        // Keep the rect centered on the node's original (cx, cy). We stored
+        // nodeR at initial layout, so positions are relative to that.
+        const cx = Number(el.getAttribute("x")) + Number(el.getAttribute("width"))  / 2;
+        const cy = Number(el.getAttribute("y")) + Number(el.getAttribute("height")) / 2;
+        el.setAttribute("x", cx - size);
+        el.setAttribute("y", cy - size);
+        el.setAttribute("width",  size * 2);
+        el.setAttribute("height", size * 2);
+      } else {
+        el.setAttribute("r", size);
+      }
     });
     svg.querySelectorAll("circle.recap-ring").forEach(el => {
       el.classList.toggle("in-path", ancestryIds.has(el.dataset.id));
@@ -879,13 +953,63 @@
     el.textContent = `${path.length} ${linkWord} | ${authors.size} ${authorWord}`;
   }
 
-  // The center readout on the tree panel's top row: just the current
-  // link id, quiet and unobtrusive.
+  // The center readout on the tree panel's top row: the current link id,
+  // rendered as a clickable/editable chip. Click it to type any id and
+  // jump (replaces the old topbar search input).
   function updateTreeNodeInfo(id) {
     const bar = document.getElementById("tree-node-info");
     if (!bar) return;
     const link = state.byId[id];
-    bar.textContent = link ? "#" + link.id : "";
+    if (!link) { bar.textContent = ""; return; }
+    bar.innerHTML = `<span class="id-jump" title="click to jump to another link">#${link.id}</span>`;
+  }
+
+  // Click-to-type jump. Swap the static label for an input, focus it, and
+  // navigate on Enter. Escape or blur cancels and restores the label.
+  function bindTreeNodeJump() {
+    const bar = document.getElementById("tree-node-info");
+    if (!bar) return;
+    bar.addEventListener("click", (e) => {
+      const chip = e.target.closest(".id-jump");
+      if (!chip) return;
+      if (chip.tagName === "INPUT") return;
+      const current = state.selectedId || "";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "id-jump-input id-jump";
+      input.value = "";
+      input.placeholder = "#" + current;
+      input.spellcheck = false;
+      input.autocomplete = "off";
+      bar.innerHTML = "";
+      bar.appendChild(input);
+      input.focus();
+
+      const restore = () => updateTreeNodeInfo(state.selectedId);
+      const onBlur = () => restore();
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          const raw = input.value.trim().replace(/^#/, "");
+          if (/^\d+$/.test(raw) && state.byId[raw]) {
+            // selectLink → updateTreeSelection → updateTreeNodeInfo, which
+            // replaces this input in the DOM. The replacement would fire a
+            // blur event on the (now-detached) input and re-enter our
+            // handler mid-selectLink, interrupting renderText. Drop the
+            // blur listener before the cascade runs so selectLink finishes
+            // cleanly; the chip is already repainted by updateTreeNodeInfo.
+            input.removeEventListener("blur", onBlur);
+            selectLink(raw);
+            return;
+          }
+          restore();
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          restore();
+        }
+      });
+      input.addEventListener("blur", onBlur);
+    });
   }
 
   // Find the tip whose ancestry back to genesis is longest. Ties broken by
@@ -1000,12 +1124,39 @@
     return t;
   }
 
-  function renderText() {
+  // Pulls the full ancestry's text in one /links/{id}/context call and
+  // mutates state.byId[...].text so the subsequent render has real prose.
+  // Safe to call repeatedly — bails out when every ancestor in the chain
+  // already has text cached. The initial tree payload intentionally ships
+  // without text to keep first paint light.
+  async function ensureAncestryTextCached(id) {
+    const chain = ancestryOf(id);
+    if (chain.every(l => (l.text && l.text.length))) return;
+    try {
+      const resp = await SprawlAPI.linkContext(id);
+      const ancestors = (resp && resp.ancestors) || [];
+      for (const a of ancestors) {
+        const row = state.byId[String(a.linkId)];
+        if (row) row.text = a.text || "";
+      }
+    } catch (e) {
+      // Transient / rate-limited — render proceeds with whatever text
+      // we already have, blanks for the missing ones.
+    }
+  }
+
+  async function renderText() {
     const id = state.selectedId;
     const target = document.getElementById("text-content");
     // Drop any min-height left over from a previous prefix-truncation click.
     target.style.minHeight = "";
     if (!id) { target.innerHTML = '<div class="empty">no link selected</div>'; return; }
+
+    // Fetch (and cache) text for the whole ancestry if we don't have it yet.
+    await ensureAncestryTextCached(id);
+    // Race guard: if the user picked a different link while we were
+    // awaiting the text fetch, let that newer render handle the DOM.
+    if (state.selectedId !== id) return;
 
     // Render the entire ancestry from genesis to the selected link — like
     // opening a book at a page, with all prior pages available above.
@@ -1014,8 +1165,17 @@
       // Author name links to their profile. onclick stop-prop so clicking the
       // name doesn't also re-select the current link via the meta-line handler.
       const authorHref = "author.html?addr=" + encodeURIComponent(link.author.id);
-      const authorHtml = `<a href="${authorHref}" onclick="event.stopPropagation()">${escapeHtml(link.author.name.toUpperCase())}</a>`;
-      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}`;
+      const authorHtml = `<a href="${authorHref}" onclick="event.stopPropagation()">${escapeHtml((link.author.name || link.author.id.slice(0,6)).toUpperCase())}</a>`;
+      // Owner credit, only shown when the link has actually been collected.
+      const ownerAddr = state.collectedLinkOwner.get(link.id);
+      let collectedHtml = "";
+      if (ownerAddr) {
+        const ownerName = state.nameByAddr.get(ownerAddr);
+        const ownerLabel = ownerName ? ownerName.toUpperCase() : ownerAddr.slice(0, 6) + "…" + ownerAddr.slice(-4);
+        const ownerHref  = "author.html?addr=" + encodeURIComponent(ownerAddr);
+        collectedHtml = ` | COLLECTED BY <a href="${ownerHref}" onclick="event.stopPropagation()">${escapeHtml(ownerLabel)}</a>`;
+      }
+      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}${collectedHtml}`;
       const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
       const selected = link.id === id ? " selected" : "";
       return `<div class="link-block${selected}" data-id="${link.id}">
@@ -1120,25 +1280,6 @@
   function parseLinkHash() {
     const m = /^#link-(\d+)$/.exec(location.hash || "");
     return m ? m[1] : null;
-  }
-
-  // --- Search bar (top bar) ---
-  function bindSearch() {
-    const input = document.getElementById("search");
-    if (!input) return;
-    input.addEventListener("keydown", (e) => {
-      if (e.key !== "Enter") return;
-      e.preventDefault();
-      const raw = input.value.trim().replace(/^#/, "");
-      if (!/^\d+$/.test(raw)) return;
-      if (!state.byId[raw]) {
-        input.value = "";
-        return;
-      }
-      selectLink(raw);
-      input.value = "";
-      input.blur();
-    });
   }
 
   // --- Keyboard shortcuts ---
@@ -1335,7 +1476,7 @@
     bindPanelControls();
     bindTreeInteractions();
     bindEntityTooltip();
-    bindSearch();
+    bindTreeNodeJump();
     bindKeyboardShortcuts();
     window.addEventListener("hashchange", () => {
       const id = parseLinkHash();

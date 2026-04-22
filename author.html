@@ -37,10 +37,26 @@
     border-bottom: var(--rule) solid var(--fg); background: var(--bg);
     z-index: 20;
   }
-  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar > .title,
+  .topbar > .title-group  { justify-self: start; }
+  .topbar > .nav-middle   { justify-self: center; }
+  .topbar > .nav-right    { justify-self: end; }
+  /* FEED and MARKETPLACE float at 25% and 75% of the viewport — each
+     sits midway between the left/right edge and the centered middle nav,
+     so the bar stays symmetric. Absolute-positioned so they don't
+     participate in the grid and shift the other columns. */
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace {
+    position: absolute;
+    top: 0; bottom: 0;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
+  .topbar > .nav-feed        { left: 25%; }
+  .topbar > .nav-marketplace { left: 75%; }
+  .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav.nav-middle { justify-self: center; }
-  .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
   main {
@@ -85,7 +101,14 @@
     <a href="authors.html" class="active">AUTHORS</a>
     <a href="entities.html">ENTITIES</a>
     <a href="arcs.html">ARCS</a>
-    <a href="collected.html">COLLECTED</a>
+  </nav>
+  <nav class="nav-feed">
+
+    <a href="feed.html">FEED</a>
+
+  </nav>
+  <nav class="nav-marketplace">
+    <a href="collected.html">MARKETPLACE</a>
   </nav>
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
@@ -105,11 +128,7 @@
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
-    if (document.referrer && new URL(document.referrer).origin === location.origin) {
-      history.back();
-    } else {
-      location.href = el.getAttribute("href") || "index.html";
-    }
+    location.href = "index.html";
   });
 });
 (function setupTheme() {
@@ -148,13 +167,69 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     return;
   }
 
+  // Direct Goldsky query for things only the subgraph knows (here: the set
+  // of collected assets currently owned by this wallet). Kept inline instead
+  // of extending SprawlGraph since it's author-page specific.
+  const GQL = "https://api.goldsky.com/api/public/project_cmo4yujy1v9de01zhfzy88sqs/subgraphs/sprawl-hybrid/0.1.0/gn";
+  async function gql(q, vars) {
+    const r = await fetch(GQL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q, variables: vars || {} }),
+    });
+    if (!r.ok) throw new Error(`subgraph: ${r.status}`);
+    const body = await r.json();
+    if (body.errors) throw new Error(JSON.stringify(body.errors));
+    return body.data;
+  }
+
   try {
     // On-chain identity via Goldsky; off-chain authored content via our API.
-    const [onchain, linksResp, votesResp] = await Promise.all([
+    // Per-creator entity and arc lookups use dedicated by-creator endpoints
+    // (backed by DynamoDB byCreator GSIs) so we only pull this author's
+    // rows instead of every entity/arc in the system.
+    const [onchain, linksResp, votesResp, entitiesResp, arcsResp, ownedData, allCitizens] = await Promise.all([
       SprawlGraph.citizen(addr),
       SprawlAPI.byAuthor(addr, 1000),
       SprawlAPI.votesByVoter(addr, 1000),
+      SprawlAPI.entitiesByCreator(addr, 500),
+      SprawlAPI.arcsByCreator(addr, 500),
+      gql(`query($addr: Bytes!) {
+        owned: collectedAssets(first: 1000, where: { owner: $addr }, orderBy: collectedAt, orderDirection: desc) {
+          id kind nativeId collectedAt
+          creator { id name }
+        }
+        createdSold: sales(first: 1000, where: { asset_: { creator: $addr }, firstSale: true }, orderBy: timestamp, orderDirection: desc) {
+          id price buyer timestamp
+          asset { kind nativeId }
+        }
+        # Anything this author created that is currently collected on-chain,
+        # regardless of whether it's still with the first collector or has
+        # been resold. Used to stamp COLLECTED BY on the LINKS / ENTITIES /
+        # ARCS rows below.
+        createdCollected: collectedAssets(first: 1000, where: { creator: $addr }) {
+          kind nativeId owner
+        }
+      }`, { addr }),
+      // Fetch every citizen once so we can show a username anywhere an
+      // address would otherwise appear (buyers in CREATED ITEMS SOLD, etc.).
+      SprawlGraph.citizens(1000),
     ]);
+
+    // Build address → name lookup. Falls through to shortAddr when the wallet
+    // isn't registered (unusual for buyers since register is a prerequisite
+    // for writing, but not for collecting).
+    const nameByAddr = {};
+    for (const c of (allCitizens || [])) {
+      nameByAddr[c.id.toLowerCase()] = c.name;
+    }
+    function displayName(a) {
+      const key = (a || "").toLowerCase();
+      const n = nameByAddr[key];
+      // Names rendered uppercase for site-wide consistency; short-address
+      // fallback keeps its natural hex casing.
+      return n ? n.toUpperCase() : shortAddr(a);
+    }
 
     if (!onchain) {
       document.getElementById("name").textContent = "Unknown address.";
@@ -167,21 +242,42 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     document.getElementById("name").innerHTML =
       escapeHtml(display.toUpperCase()) +
       (onchain.isBanned ? ' <span class="banned-tag">| BANNED</span>' : "");
+    const explorerHref = `https://sepolia.etherscan.io/address/${onchain.id}`;
     document.getElementById("addr").innerHTML =
-      `<div class="line">${escapeHtml(onchain.id)}</div>` +
-      `<div class="line">registered at block ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`;
+      `<div class="line"><a href="${explorerHref}" target="_blank" rel="noopener">${escapeHtml(onchain.id)}</a></div>` +
+      `<div class="line">REGISTERED AT BLOCK ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`;
 
-    const all    = (linksResp && linksResp.items) || [];
-    const votes  = (votesResp  && votesResp.items) || [];
-    const links  = all.filter(d => !d.isRecap);
-    const recaps = all.filter(d =>  d.isRecap);
+    const all      = (linksResp    && linksResp.items)    || [];
+    const votes    = (votesResp    && votesResp.items)    || [];
+    // The by-creator endpoints already filter server-side via the GSI.
+    const entities = (entitiesResp && entitiesResp.items) || [];
+    const arcs     = (arcsResp    && arcsResp.items)    || [];
+    const owned      = (ownedData && ownedData.owned)       || [];
+    const createdSold = (ownedData && ownedData.createdSold) || [];
+
+    // Lookup: (kind, nativeId) → current owner address. Used below to stamp
+    // COLLECTED BY on each LINKS / ENTITIES / ARCS row when applicable.
+    const collectedOwnerByKey = new Map();
+    for (const a of ((ownedData && ownedData.createdCollected) || [])) {
+      collectedOwnerByKey.set(`${a.kind}:${a.nativeId}`, (a.owner || "").toLowerCase());
+    }
+    function collectedBy(kind, nativeId) {
+      const ownerAddr = collectedOwnerByKey.get(`${kind}:${nativeId}`);
+      if (!ownerAddr) return "";
+      const label = displayName(ownerAddr);
+      const href  = "author.html?addr=" + encodeURIComponent(ownerAddr);
+      return ` | COLLECTED BY <a href="${href}">${escapeHtml(label)}</a>`;
+    }
+    const links      = all.filter(d => !d.isRecap);
+    const recaps     = all.filter(d =>  d.isRecap);
 
     const counts = [
-      ["LINKS",                `${links.length}${recaps.length ? ` (+${recaps.length} recap${recaps.length === 1 ? "" : "s"})` : ""}`],
-      ["COLLECTED AS CREATOR", onchain.totalCollectedAsCreator || 0],
-      ["PURCHASES",            onchain.totalPurchases || 0],
-      ["SALES",                onchain.totalSales || 0],
-      ["VOTES CAST",           votes.length],
+      ["LINKS",              `${links.length}${recaps.length ? ` (+${recaps.length} recap${recaps.length === 1 ? "" : "s"})` : ""}`],
+      ["ENTITIES",           entities.length],
+      ["ARCS",               arcs.length],
+      ["VOTES CAST",         votes.length],
+      ["COLLECTED ITEMS",    owned.length],
+      ["CREATED ITEMS SOLD", createdSold.length],
     ];
     document.getElementById("counts").innerHTML = counts
       .map(([k, v]) => `<div class="row"><span class="k">${k}:</span><span>${v}</span></div>`)
@@ -198,7 +294,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         return `<div class="link-row">
           <div class="head">
             <a href="index.html#link-${encodeURIComponent(l.linkId)}">#${escapeHtml(displayId)}</a>
-            | +${escapeHtml(String(voteCount))}${tag}
+            | +${escapeHtml(String(voteCount))}${tag}${collectedBy("Link", l.linkId)}
           </div>
           <div class="body">${escapeHtml(body)}</div>
         </div>`;
@@ -206,11 +302,98 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       sections.push(`<h3>LINKS</h3>${rows}`);
     }
 
+    if (entities.length) {
+      const rows = entities.map(e => {
+        const desc = e.description ? snippet(e.description, 140) : "";
+        const collectedSub = collectedBy("Entity", e.entityId);
+        return `<div class="entity-row">
+          <div class="head">[${escapeHtml(e.entityId)}] ${escapeHtml(e.name || "")}</div>
+          ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
+          <div class="sub">${escapeHtml((e.entityType || "").toUpperCase())}${collectedSub}</div>
+        </div>`;
+      }).join("");
+      sections.push(`<h3>ENTITIES</h3>${rows}`);
+    }
+
+    if (arcs.length) {
+      const rows = arcs.map(a => {
+        const desc = a.description ? snippet(a.description, 140) : "";
+        const anchor = a.anchorLinkId != null ? String(a.anchorLinkId) : "";
+        const collectedSub = collectedBy("Arc", a.arcId);
+        const subParts = [];
+        if (anchor) subParts.push(`ANCHORED AT <a href="index.html#link-${encodeURIComponent(anchor)}">#${escapeHtml(anchor)}</a>`);
+        if (collectedSub) subParts.push(collectedSub.replace(/^\s*\|\s*/, ""));
+        return `<div class="arc-row">
+          <div class="head">{${escapeHtml(a.arcId)}}</div>
+          ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
+          ${subParts.length ? `<div class="sub">${subParts.join(" | ")}</div>` : ""}
+        </div>`;
+      }).join("");
+      sections.push(`<h3>ARCS</h3>${rows}`);
+    }
+
     if (votes.length) {
       const html = votes
-        .map(v => `<a href="index.html#link-${encodeURIComponent(v.linkId)}">${escapeHtml(v.linkId.slice(0,12))}…</a>`)
+        .map(v => `<a href="index.html#link-${encodeURIComponent(v.linkId)}">#${escapeHtml(v.linkId)}</a>`)
         .join(", ");
       sections.push(`<h3>VOTES</h3><div class="votes-line">${html}</div>`);
+    }
+
+    // Content-native labels: links show as #id, entities as [id], arcs as {id}.
+    // Shared by both the COLLECTED ITEMS and CREATED ITEMS SOLD sections below.
+    function assetHref(kind, nativeId) {
+      if (kind === "Link")   return `index.html#link-${encodeURIComponent(nativeId)}`;
+      if (kind === "Entity") return `entities.html`;
+      if (kind === "Arc")    return `arcs.html`;
+      return "#";
+    }
+    function assetLabel(kind, nativeId) {
+      if (kind === "Link")   return `#${escapeHtml(nativeId)}`;
+      if (kind === "Entity") return `[${escapeHtml(nativeId)}]`;
+      if (kind === "Arc")    return `{${escapeHtml(nativeId)}}`;
+      return escapeHtml(String(nativeId));
+    }
+    function formatEth(weiStr) {
+      const wei = BigInt(weiStr || "0");
+      if (wei === 0n) return "0 ETH";
+      const whole = wei / 10n ** 18n;
+      const frac  = wei % 10n ** 18n;
+      const fracStr = frac.toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
+      return fracStr ? `${whole}.${fracStr} ETH` : `${whole} ETH`;
+    }
+
+    if (owned.length) {
+      // Anything this wallet owns right now (first collection or later purchase).
+      const rows = owned.map(a => {
+        const creatorAddr = a.creator && a.creator.id;
+        const creatorLink = creatorAddr
+          ? `<a href="author.html?addr=${encodeURIComponent(creatorAddr)}">${escapeHtml(displayName(creatorAddr))}</a>`
+          : "—";
+        return `<div class="entity-row">
+          <div class="head"><a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a></div>
+          <div class="sub">BY ${creatorLink}</div>
+        </div>`;
+      }).join("");
+      sections.push(`<h3>COLLECTED ITEMS</h3>${rows}`);
+    }
+
+    if (createdSold.length) {
+      // First sales only — things this author made that someone else collected.
+      // Shows buyer + price so the author can see who collected what. Buyer
+      // is linked to their own author page; if they have a registered name
+      // it'll be visible there.
+      const rows = createdSold.map(s => {
+        const a = s.asset || {};
+        const buyerAddr = s.buyer;
+        const buyerLink = buyerAddr
+          ? `<a href="author.html?addr=${encodeURIComponent(buyerAddr)}">${escapeHtml(displayName(buyerAddr))}</a>`
+          : "—";
+        return `<div class="entity-row">
+          <div class="head"><a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a> <span>${formatEth(s.price)}</span></div>
+          <div class="sub">COLLECTED BY ${buyerLink}</div>
+        </div>`;
+      }).join("");
+      sections.push(`<h3>CREATED ITEMS SOLD</h3>${rows}`);
     }
 
     document.getElementById("sections").innerHTML =
