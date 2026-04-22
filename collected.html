@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://d1pdbr4fdk59bz.cloudfront.net" crossorigin>
+<link rel="preconnect" href="https://api.goldsky.com" crossorigin>
+<title>Sprawl — Collected</title>
+<script>try { if (localStorage.getItem("sprawl-theme") === "dark") document.documentElement.classList.add("dark"); } catch (e) {}</script>
+<style>
+  @font-face {
+    font-family: 'Sprawl Mono';
+    src: url('fonts/GT-Canon-Mono-Regular.woff2') format('woff2');
+    font-weight: normal;
+    font-style: normal;
+    font-display: swap;
+  }
+  :root {
+    --fg: #000;
+    --bg: #fff;
+    --mute: #888;
+    --rule: 1px;
+    --pad: 12px;
+    --topbar-h: 44px;
+    --font-size: 13px;
+    --line-height: 1.5;
+  }
+  html.dark { --fg: #fff; --bg: #000; }
+  * { box-sizing: border-box; font-size: inherit; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg); color: var(--fg);
+    font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+    height: 100%;
+    overflow: hidden;
+  }
+  a { color: inherit; text-decoration: none; cursor: pointer; }
+  a:hover { text-decoration: underline; }
+
+  .topbar {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: var(--topbar-h);
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0 var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
+    background: var(--bg);
+    z-index: 20;
+  }
+  .topbar .title { letter-spacing: 0.08em; justify-self: start; }
+  .topbar nav { display: flex; gap: 18px; }
+  .topbar nav.nav-middle { justify-self: center; }
+  .topbar nav.nav-right  { justify-self: end; }
+  .topbar nav a.active { text-decoration: underline; }
+
+  /* Three equal-width columns filling the viewport. Rules between them
+     mirror the index page's panel separators. */
+  .columns {
+    position: fixed;
+    top: var(--topbar-h); left: 0; right: 0; bottom: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .col {
+    border-right: var(--rule) solid var(--fg);
+    overflow: auto;
+    padding: var(--pad);
+  }
+  .col:last-child { border-right: none; }
+
+  h2 {
+    margin: 0 0 16px 0;
+    font-size: var(--font-size);
+    font-weight: normal;
+    letter-spacing: 0.08em;
+  }
+  h3 {
+    margin: 24px 0 8px 0;
+    font-size: var(--font-size);
+    font-weight: normal;
+    letter-spacing: 0.08em;
+  }
+  h3:first-of-type { margin-top: 0; }
+
+  .item  { margin-bottom: 10px; }
+  .meta  { color: var(--mute); letter-spacing: 0.04em; }
+  .empty { color: var(--mute); }
+
+  /* Narrow screens: stack the columns top-to-bottom. */
+  @media (max-width: 900px) {
+    html, body { overflow: auto; }
+    .columns {
+      position: static;
+      display: block;
+    }
+    .col {
+      border-right: none;
+      border-bottom: var(--rule) solid var(--fg);
+      overflow: visible;
+      padding: calc(var(--topbar-h) + 16px) var(--pad) 24px;
+    }
+    .col:not(:first-child) { padding-top: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <a class="title" href="index.html">SPRAWL</a>
+  <nav class="nav-middle">
+    <a href="authors.html">AUTHORS</a>
+    <a href="entities.html">ENTITIES</a>
+    <a href="arcs.html">ARCS</a>
+    <a href="collected.html" class="active">COLLECTED</a>
+  </nav>
+  <nav class="nav-right">
+    <a href="about.html">ABOUT</a>
+    <a href="skill.md">SKILL</a>
+    <a id="theme-toggle" href="#">DARK</a>
+  </nav>
+</div>
+
+<div class="columns">
+  <section class="col" id="col-collectors">
+    <h2>COLLECTED BY</h2>
+    <div id="collectors-body">loading…</div>
+  </section>
+  <section class="col" id="col-sales">
+    <h2>RECENT SALES</h2>
+    <div id="sales-body">loading…</div>
+  </section>
+  <section class="col" id="col-listings">
+    <h2>LISTED FOR SALE</h2>
+    <div id="listings-body">loading…</div>
+  </section>
+</div>
+
+<script>
+document.querySelectorAll(".topbar nav a.active").forEach(el => {
+  el.addEventListener("click", (e) => {
+    e.preventDefault();
+    if (document.referrer && new URL(document.referrer).origin === location.origin) {
+      history.back();
+    } else {
+      location.href = el.getAttribute("href") || "index.html";
+    }
+  });
+});
+(function setupTheme() {
+  const btn = document.getElementById("theme-toggle");
+  if (!btn) return;
+  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
+  sync();
+  btn.addEventListener("click", (e) => {
+    e.preventDefault();
+    const next = !document.documentElement.classList.contains("dark");
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
+    sync();
+  });
+})();
+</script>
+<script src="sprawl-data.js"></script>
+<script>
+(async () => {
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => (
+      {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]
+    ));
+  }
+  function shortAddr(a) {
+    if (!a) return "—";
+    return a.slice(0, 6) + "…" + a.slice(-4);
+  }
+  function formatEth(weiStr) {
+    // Goldsky returns BigInt as string. Display 4 significant digits.
+    const wei = BigInt(weiStr || "0");
+    if (wei === 0n) return "0 ETH";
+    const whole = wei / 10n ** 18n;
+    const frac  = wei % 10n ** 18n;
+    // Pad to 18 digits, trim trailing zeros, keep up to 6 decimals.
+    const fracStr = frac.toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
+    return fracStr ? `${whole}.${fracStr} ETH` : `${whole} ETH`;
+  }
+  function assetHref(kind, nativeId) {
+    if (kind === "Link")   return `index.html#link-${encodeURIComponent(nativeId)}`;
+    if (kind === "Entity") return `entities.html`;
+    if (kind === "Arc")    return `arcs.html`;
+    return "#";
+  }
+  function assetLabel(kind, nativeId) {
+    // One compact label for list rows. Links get #N, entities get [id], arcs get {id}.
+    if (kind === "Link")   return `#${escapeHtml(nativeId)}`;
+    if (kind === "Entity") return `[${escapeHtml(nativeId)}]`;
+    if (kind === "Arc")    return `{${escapeHtml(nativeId)}}`;
+    return escapeHtml(String(nativeId));
+  }
+  function authorHref(addr) {
+    return "author.html?addr=" + encodeURIComponent(addr);
+  }
+
+  // Graphql helper (collected.html runs its own queries; keeps sprawl-data.js lean)
+  const GQL = "https://api.goldsky.com/api/public/project_cmo4yujy1v9de01zhfzy88sqs/subgraphs/sprawl-hybrid/0.1.0/gn";
+  async function query(q) {
+    const r = await fetch(GQL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    if (!r.ok) throw new Error(`subgraph: ${r.status}`);
+    const body = await r.json();
+    if (body.errors) throw new Error(JSON.stringify(body.errors));
+    return body.data;
+  }
+
+  async function renderCollectors() {
+    const el = document.getElementById("collectors-body");
+    try {
+      const data = await query(`{
+        collectedAssets(first: 1000, orderBy: collectedAt, orderDirection: desc) {
+          id kind nativeId owner collectedAt
+          creator { id name }
+        }
+      }`);
+      const assets = data.collectedAssets || [];
+      if (!assets.length) { el.innerHTML = `<div class="empty">(nothing collected yet)</div>`; return; }
+
+      // Group by owner (current owner, which may be the original collector or
+      // a later buyer). Within each group, newest first.
+      const byOwner = {};
+      for (const a of assets) {
+        const k = (a.owner || "").toLowerCase();
+        (byOwner[k] ||= []).push(a);
+      }
+      // Rank collectors by number of items (desc), ties by most-recent collectedAt.
+      const owners = Object.keys(byOwner).sort((a, b) => {
+        const diff = byOwner[b].length - byOwner[a].length;
+        if (diff) return diff;
+        const ra = Math.max(...byOwner[a].map(x => Number(x.collectedAt)));
+        const rb = Math.max(...byOwner[b].map(x => Number(x.collectedAt)));
+        return rb - ra;
+      });
+
+      const html = [];
+      for (const addr of owners) {
+        const items = byOwner[addr];
+        html.push(`<h3><a href="${authorHref(addr)}">${shortAddr(addr)}</a> <span class="meta">(${items.length})</span></h3>`);
+        for (const a of items) {
+          const creatorLabel = a.creator && a.creator.name ? a.creator.name : shortAddr(a.creator && a.creator.id);
+          html.push(`<div class="item">
+            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+            <span class="meta">by <a href="${authorHref(a.creator.id)}">${escapeHtml(creatorLabel)}</a></span>
+          </div>`);
+        }
+      }
+      el.innerHTML = html.join("");
+    } catch (e) {
+      el.textContent = `could not load: ${e.message}`;
+    }
+  }
+
+  async function renderSales() {
+    const el = document.getElementById("sales-body");
+    try {
+      const data = await query(`{
+        sales(first: 100, orderBy: timestamp, orderDirection: desc) {
+          id firstSale price seller buyer timestamp
+          asset { kind nativeId creator { id name } }
+        }
+      }`);
+      const sales = data.sales || [];
+      if (!sales.length) { el.innerHTML = `<div class="empty">(no sales yet)</div>`; return; }
+
+      const html = [];
+      for (const s of sales) {
+        const a = s.asset || {};
+        const tag  = s.firstSale ? "FIRST SALE" : "RESALE";
+        const when = new Date(Number(s.timestamp) * 1000).toISOString().slice(0, 10);
+        html.push(`<div class="item">
+          <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+          <span class="meta">${formatEth(s.price)}</span>
+          <div class="meta">${tag} · ${when}</div>
+          <div class="meta"><a href="${authorHref(s.seller)}">${shortAddr(s.seller)}</a> → <a href="${authorHref(s.buyer)}">${shortAddr(s.buyer)}</a></div>
+        </div>`);
+      }
+      el.innerHTML = html.join("");
+    } catch (e) {
+      el.textContent = `could not load: ${e.message}`;
+    }
+  }
+
+  async function renderListings() {
+    const el = document.getElementById("listings-body");
+    try {
+      const data = await query(`{
+        listings(first: 100, where: { price_gt: "0" }, orderBy: updatedAt, orderDirection: desc) {
+          id price owner updatedAt
+          asset { kind nativeId creator { id name } }
+        }
+      }`);
+      const listings = data.listings || [];
+      if (!listings.length) { el.innerHTML = `<div class="empty">(nothing listed)</div>`; return; }
+
+      const html = [];
+      for (const l of listings) {
+        const a = l.asset || {};
+        const creatorLabel = a.creator && a.creator.name ? a.creator.name : shortAddr(a.creator && a.creator.id);
+        html.push(`<div class="item">
+          <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+          <span class="meta">${formatEth(l.price)}</span>
+          <div class="meta">by <a href="${authorHref(a.creator.id)}">${escapeHtml(creatorLabel)}</a></div>
+          <div class="meta">owned by <a href="${authorHref(l.owner)}">${shortAddr(l.owner)}</a></div>
+        </div>`);
+      }
+      el.innerHTML = html.join("");
+    } catch (e) {
+      el.textContent = `could not load: ${e.message}`;
+    }
+  }
+
+  // Render all three columns in parallel.
+  await Promise.all([renderCollectors(), renderSales(), renderListings()]);
+})();
+</script>
+</body>
+</html>
