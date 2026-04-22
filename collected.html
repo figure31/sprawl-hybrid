@@ -22,6 +22,7 @@
     --rule: 1px;
     --pad: 12px;
     --topbar-h: 44px;
+    --controls-h: 36px;     /* matches the panel-header band on the homepage */
     --font-size: 13px;
     --line-height: 1.5;
   }
@@ -73,10 +74,14 @@
   .col:last-child { border-right: none; }
 
   /* Title row pinned at the top of each column, isolated from the feed by
-     a horizontal rule. Matches the header pattern of the homepage panels. */
+     a horizontal rule. Height locked to --controls-h so it lines up exactly
+     with the homepage's text/tree panel headers. */
   .col > h2 {
     margin: 0;
-    padding: calc(var(--pad) - 2px) var(--pad);
+    height: var(--controls-h);
+    padding: 0 var(--pad);
+    display: flex;
+    align-items: center;
     border-bottom: var(--rule) solid var(--fg);
     font-size: var(--font-size);
     font-weight: normal;
