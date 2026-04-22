@@ -57,8 +57,7 @@
   .topbar nav.nav-right  { justify-self: end; }
   .topbar nav a.active { text-decoration: underline; }
 
-  /* Three equal-width columns filling the viewport. Rules between them
-     mirror the index page's panel separators. */
+  /* Three equal-width columns filling the viewport, separated by rules. */
   .columns {
     position: fixed;
     top: var(--topbar-h); left: 0; right: 0; bottom: 0;
@@ -67,32 +66,50 @@
   }
   .col {
     border-right: var(--rule) solid var(--fg);
-    overflow: auto;
-    padding: var(--pad);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
   .col:last-child { border-right: none; }
 
-  h2 {
-    margin: 0 0 16px 0;
+  /* Title row pinned at the top of each column, isolated from the feed by
+     a horizontal rule. Matches the header pattern of the homepage panels. */
+  .col > h2 {
+    margin: 0;
+    padding: calc(var(--pad) - 2px) var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
     font-size: var(--font-size);
     font-weight: normal;
     letter-spacing: 0.08em;
+    background: var(--bg);
   }
+  .col-body {
+    padding: var(--pad);
+    overflow-y: auto;
+    flex: 1;
+  }
+
   h3 {
-    margin: 24px 0 8px 0;
+    margin: 18px 0 6px 0;
     font-size: var(--font-size);
     font-weight: normal;
     letter-spacing: 0.08em;
   }
   h3:first-of-type { margin-top: 0; }
 
-  .item  { margin-bottom: 10px; }
+  /* Items sit snug under their group header — no visual break between
+     siblings of the same collector. */
+  .item  { margin-bottom: 2px; }
+  /* Sales/listings rows hold multiple meta lines, so they get breathing
+     room between rows while staying tight internally. */
+  .row   { margin-bottom: 14px; }
   .meta  { color: var(--mute); letter-spacing: 0.04em; }
+  .price { color: var(--fg); }
   .empty { color: var(--mute); }
 
   /* Narrow screens: stack the columns top-to-bottom. */
   @media (max-width: 900px) {
-    html, body { overflow: auto; }
+    html, body { overflow: auto; height: auto; }
     .columns {
       position: static;
       display: block;
@@ -101,9 +118,9 @@
       border-right: none;
       border-bottom: var(--rule) solid var(--fg);
       overflow: visible;
-      padding: calc(var(--topbar-h) + 16px) var(--pad) 24px;
     }
-    .col:not(:first-child) { padding-top: 16px; }
+    .col:first-child { margin-top: var(--topbar-h); }
+    .col-body { overflow: visible; }
   }
 </style>
 </head>
@@ -126,16 +143,16 @@
 
 <div class="columns">
   <section class="col" id="col-collectors">
-    <h2>COLLECTED BY</h2>
-    <div id="collectors-body">loading…</div>
+    <h2>COLLECTORS</h2>
+    <div class="col-body" id="collectors-body">loading…</div>
   </section>
   <section class="col" id="col-sales">
-    <h2>RECENT SALES</h2>
-    <div id="sales-body">loading…</div>
+    <h2>SALES</h2>
+    <div class="col-body" id="sales-body">loading…</div>
   </section>
   <section class="col" id="col-listings">
-    <h2>LISTED FOR SALE</h2>
-    <div id="listings-body">loading…</div>
+    <h2>LISTINGS</h2>
+    <div class="col-body" id="listings-body">loading…</div>
   </section>
 </div>
 
@@ -182,7 +199,6 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     if (wei === 0n) return "0 ETH";
     const whole = wei / 10n ** 18n;
     const frac  = wei % 10n ** 18n;
-    // Pad to 18 digits, trim trailing zeros, keep up to 6 decimals.
     const fracStr = frac.toString().padStart(18, "0").slice(0, 6).replace(/0+$/, "");
     return fracStr ? `${whole}.${fracStr} ETH` : `${whole} ETH`;
   }
@@ -193,7 +209,6 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     return "#";
   }
   function assetLabel(kind, nativeId) {
-    // One compact label for list rows. Links get #N, entities get [id], arcs get {id}.
     if (kind === "Link")   return `#${escapeHtml(nativeId)}`;
     if (kind === "Entity") return `[${escapeHtml(nativeId)}]`;
     if (kind === "Arc")    return `{${escapeHtml(nativeId)}}`;
@@ -201,6 +216,15 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
   }
   function authorHref(addr) {
     return "author.html?addr=" + encodeURIComponent(addr);
+  }
+
+  // nameByAddr populated once upfront; used to show usernames wherever we'd
+  // otherwise only have a hex address.
+  let nameByAddr = {};
+  function displayName(addr) {
+    const a = (addr || "").toLowerCase();
+    const n = nameByAddr[a];
+    return n ? n : shortAddr(addr);
   }
 
   // Graphql helper (collected.html runs its own queries; keeps sprawl-data.js lean)
@@ -217,6 +241,17 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     return body.data;
   }
 
+  async function loadNames() {
+    try {
+      const data = await query(`{ citizens(first: 1000) { id name } }`);
+      for (const c of (data.citizens || [])) {
+        nameByAddr[c.id.toLowerCase()] = c.name;
+      }
+    } catch (e) {
+      // Fall back silently — names just won't resolve, addresses still work.
+    }
+  }
+
   async function renderCollectors() {
     const el = document.getElementById("collectors-body");
     try {
@@ -229,14 +264,13 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const assets = data.collectedAssets || [];
       if (!assets.length) { el.innerHTML = `<div class="empty">(nothing collected yet)</div>`; return; }
 
-      // Group by owner (current owner, which may be the original collector or
-      // a later buyer). Within each group, newest first.
+      // Group by current owner. Rank owners by holding count (desc); ties by
+      // most-recent collectedAt so active collectors float up.
       const byOwner = {};
       for (const a of assets) {
         const k = (a.owner || "").toLowerCase();
         (byOwner[k] ||= []).push(a);
       }
-      // Rank collectors by number of items (desc), ties by most-recent collectedAt.
       const owners = Object.keys(byOwner).sort((a, b) => {
         const diff = byOwner[b].length - byOwner[a].length;
         if (diff) return diff;
@@ -248,12 +282,17 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const html = [];
       for (const addr of owners) {
         const items = byOwner[addr];
-        html.push(`<h3><a href="${authorHref(addr)}">${shortAddr(addr)}</a> <span class="meta">(${items.length})</span></h3>`);
+        const name = nameByAddr[addr];
+        const label = name
+          ? `<a href="${authorHref(addr)}">${escapeHtml(name)}</a> <span class="meta">${shortAddr(addr)}</span>`
+          : `<a href="${authorHref(addr)}">${shortAddr(addr)}</a>`;
+        html.push(`<h3>${label} <span class="meta">(${items.length})</span></h3>`);
         for (const a of items) {
-          const creatorLabel = a.creator && a.creator.name ? a.creator.name : shortAddr(a.creator && a.creator.id);
+          const creatorAddr = a.creator && a.creator.id;
+          const creatorLabel = creatorAddr ? displayName(creatorAddr) : "—";
           html.push(`<div class="item">
             <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
-            <span class="meta">by <a href="${authorHref(a.creator.id)}">${escapeHtml(creatorLabel)}</a></span>
+            <span class="meta">by <a href="${authorHref(creatorAddr)}">${escapeHtml(creatorLabel)}</a></span>
           </div>`);
         }
       }
@@ -280,11 +319,13 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const a = s.asset || {};
         const tag  = s.firstSale ? "FIRST SALE" : "RESALE";
         const when = new Date(Number(s.timestamp) * 1000).toISOString().slice(0, 10);
-        html.push(`<div class="item">
-          <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
-          <span class="meta">${formatEth(s.price)}</span>
+        html.push(`<div class="row">
+          <div>
+            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+            <span class="price">${formatEth(s.price)}</span>
+          </div>
           <div class="meta">${tag} · ${when}</div>
-          <div class="meta"><a href="${authorHref(s.seller)}">${shortAddr(s.seller)}</a> → <a href="${authorHref(s.buyer)}">${shortAddr(s.buyer)}</a></div>
+          <div class="meta"><a href="${authorHref(s.seller)}">${escapeHtml(displayName(s.seller))}</a> → <a href="${authorHref(s.buyer)}">${escapeHtml(displayName(s.buyer))}</a></div>
         </div>`);
       }
       el.innerHTML = html.join("");
@@ -308,12 +349,15 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const html = [];
       for (const l of listings) {
         const a = l.asset || {};
-        const creatorLabel = a.creator && a.creator.name ? a.creator.name : shortAddr(a.creator && a.creator.id);
-        html.push(`<div class="item">
-          <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
-          <span class="meta">${formatEth(l.price)}</span>
-          <div class="meta">by <a href="${authorHref(a.creator.id)}">${escapeHtml(creatorLabel)}</a></div>
-          <div class="meta">owned by <a href="${authorHref(l.owner)}">${shortAddr(l.owner)}</a></div>
+        const creatorAddr = a.creator && a.creator.id;
+        const creatorLabel = creatorAddr ? displayName(creatorAddr) : "—";
+        html.push(`<div class="row">
+          <div>
+            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+            <span class="price">${formatEth(l.price)}</span>
+          </div>
+          <div class="meta">by <a href="${authorHref(creatorAddr)}">${escapeHtml(creatorLabel)}</a></div>
+          <div class="meta">owned by <a href="${authorHref(l.owner)}">${escapeHtml(displayName(l.owner))}</a></div>
         </div>`);
       }
       el.innerHTML = html.join("");
@@ -322,7 +366,9 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     }
   }
 
-  // Render all three columns in parallel.
+  // Load the name map first so every column can resolve usernames. Then
+  // render all three columns in parallel.
+  await loadNames();
   await Promise.all([renderCollectors(), renderSales(), renderListings()]);
 })();
 </script>
