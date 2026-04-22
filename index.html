@@ -516,82 +516,6 @@
     }
   }
 
-  // Re-pull core data and rerender in place. Does NOT reframe the viewport
-  // or change the current selection, so a reader mid-scroll sees new content
-  // appear without the camera jumping.
-  async function refreshData() {
-    await loadAll();
-    const writers = new Set(state.links.map(l => l.author.id)).size;
-    document.getElementById("stat-writers").textContent = writers;
-    document.getElementById("stat-links").textContent   = state.links.length;
-    renderTree();
-    updateTreeSelection();
-    if (state.selectedId && state.byId[state.selectedId]) {
-      renderText({});
-    }
-  }
-
-  // Lightweight heartbeat: every 30s (only while the tab is visible), pull
-  // the single most recent link and compare its linkId to the last one we
-  // saw. If it grew, something was written — trigger refreshData(). One tiny
-  // request per tab per 30s; far below the 20 req/sec API Gateway ceiling.
-  function startHeartbeat() {
-    const INTERVAL_MS = 30000;
-    let lastTopId = null;
-    let inFlight  = false;
-
-    // The endpoint ships Cache-Control: max-age=10. Our poll interval is 30s,
-    // so the cache always expires between polls and we never miss updates.
-    // Leaving the URL stable (no buster) lets many open tabs on the same
-    // machine share a single network fetch via the browser's HTTP cache,
-    // and sets us up for an upstream CDN to absorb concurrent visitors.
-    const pollUrl = () => {
-      const base = (window.SPRAWL_API_URL ||
-        "https://d1pdbr4fdk59bz.cloudfront.net")
-        .replace(/\/$/, "");
-      return `${base}/feed/recent-links?limit=1`;
-    };
-    async function pollTopLinkId() {
-      const r = await fetch(pollUrl());
-      if (!r.ok) throw new Error(`poll: ${r.status}`);
-      const body = await r.json();
-      const items = (body && body.items) || [];
-      if (!items.length) return null;
-      return Number(items[0].linkId);
-    }
-
-    async function tick() {
-      if (inFlight || document.hidden) return;
-      inFlight = true;
-      try {
-        const topId = await pollTopLinkId();
-        if (topId == null) return;
-        if (lastTopId != null && topId !== lastTopId) {
-          try { await refreshData(); }
-          catch (e) { console.warn("sprawl refresh failed:", e); }
-        }
-        lastTopId = topId;
-      } catch (e) {
-        // Transient network/API blips are fine; next tick will retry.
-        console.warn("sprawl heartbeat failed:", e);
-      } finally {
-        inFlight = false;
-      }
-    }
-
-    // Seed so the first real tick only fires when something actually changed.
-    pollTopLinkId().then(id => { if (id != null) lastTopId = id; }).catch(() => {});
-
-    setInterval(tick, INTERVAL_MS);
-
-    // When returning to the tab after it's been hidden, fire immediately
-    // instead of waiting up to 30s for the next interval.
-    document.addEventListener("visibilitychange", () => {
-      if (!document.hidden) tick();
-    });
-  }
-
-
   // --- Tree construction and layout ---
   function buildTree() {
     const nodes = {};
@@ -1516,7 +1440,6 @@
         frameAncestors(AUTO_FRAME_COUNT);
       }
     });
-    startHeartbeat();
   })();
 })();
 </script>
