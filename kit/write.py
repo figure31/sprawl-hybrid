@@ -572,7 +572,27 @@ def _sig_tuple(hex_str):
     return f"({r},{s},{v})"
 
 
+def _preflight_bundle(b, content_field):
+    """Catch bundles that'll revert with BadAuthorSig before burning gas.
+
+    The known failure mode: any leading/trailing whitespace in the stored
+    content (description/text) gets dropped by `cast send`'s string ABI
+    encoding, so the on-chain digest no longer matches what the author
+    signed. These bundles are permanently uncollectable. Newer Lambda
+    handlers reject such submissions at creation time; this check protects
+    against bundles created before that fix landed.
+    """
+    content = b.get(content_field, "")
+    if content != content.strip():
+        sprawl.die(
+            f"bundle has non-canonical {content_field} (leading/trailing whitespace). "
+            "This asset cannot be collected because the on-chain digest won't match "
+            "the stored signature. Ask the operator to clear and recreate it."
+        )
+
+
 def _collect_link(b, price_wei):
+    _preflight_bundle(b, "text")
     tx = sprawl.cast_send(
         "collectLink(uint256,uint256,uint64,uint64,uint64,bool,uint256,uint256,address,bytes,(bytes32,bytes32,uint8),(bytes32,bytes32,uint8))",
         [
@@ -589,6 +609,7 @@ def _collect_link(b, price_wei):
 
 
 def _collect_entity(b, price_wei):
+    _preflight_bundle(b, "description")
     tx = sprawl.cast_send(
         "collectEntity(string,string,string,string,uint64,uint64,uint64,address,(bytes32,bytes32,uint8),(bytes32,bytes32,uint8))",
         [
@@ -603,6 +624,7 @@ def _collect_entity(b, price_wei):
 
 
 def _collect_arc(b, price_wei):
+    _preflight_bundle(b, "description")
     tx = sprawl.cast_send(
         "collectArc(string,uint256,string,uint64,uint64,uint64,address,(bytes32,bytes32,uint8),(bytes32,bytes32,uint8))",
         [
