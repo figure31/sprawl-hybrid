@@ -68,8 +68,11 @@
   .event .detail { color: var(--mute); margin-left: 6px; letter-spacing: 0.04em; }
   .empty { color: var(--mute); }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -87,12 +90,13 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <main>
-  <div id="feed">loading…</div>
+  <div id="feed"><span class="boot-loading">loading…</span></div>
 </main>
 
 <script>
@@ -117,6 +121,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   function escapeHtml(s) {
@@ -314,6 +323,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     feedEl.innerHTML = top
       .map(e => `<div class="event">${e.html}</div>`)
       .join("") + `<div id="feed-sentinel" style="height: 1px;"></div>`;
+    sprawlBoot.stagger(feedEl);
 
     // Scroll-to-bottom trigger: bump the per-source fetch size by 50 and
     // re-run the whole fetch. Re-fetches are cheap at testnet scale; if

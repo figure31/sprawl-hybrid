@@ -23,6 +23,7 @@
     --fg: #000;
     --bg: #fff;
     --mute: #888;          /* neutral grey — same in both themes */
+    --sel-bg: rgba(0, 0, 0, 0.05);   /* subtle tint on the active link-block */
     --rule: 1px;
     --pad: 12px;
     --topbar-h: 44px;
@@ -33,7 +34,11 @@
 
   /* Dark theme — swap foreground and background. Everything else pulls from
      these CSS variables so the whole UI inverts in one step. */
-  html.dark { --fg: #fff; --bg: #000; }
+  html.dark {
+    --fg: #fff;
+    --bg: #000;
+    --sel-bg: rgba(255, 255, 255, 0.12);   /* needs more lift than the light-mode tint to read as "highlighted" on black */
+  }
 
   * { box-sizing: border-box; }
 
@@ -57,7 +62,8 @@
   a:hover { text-decoration: underline; }
 
   /* Top bar — three-section grid: title (left), primary nav (center),
-     secondary nav (right). */
+     secondary nav (right). The bottom rule is a ::after pseudo-element
+     (not a border) so the boot animation can draw it in from the left. */
   .topbar {
     position: fixed;
     top: 0; left: 0; right: 0;
@@ -66,9 +72,15 @@
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     padding: 0 var(--pad);
-    border-bottom: var(--rule) solid var(--fg);
     background: var(--bg);
     z-index: 20;
+  }
+  .topbar::after {
+    content: "";
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: var(--rule);
+    background: var(--fg);
   }
   .topbar > .title,
   .topbar > .title-group  { justify-self: start; }
@@ -111,13 +123,24 @@
     display: grid;
     grid-template-columns: 50% 50%;
   }
+  /* Vertical rule between the panels is a ::after overlay (not a border)
+     for the same reason as the topbar — boot animation draws it top→down.
+     z-index: 3 puts it above the opaque controls-band ::before (z:1) and
+     the controls buttons themselves (z:2). */
   .panel {
-    border-right: var(--rule) solid var(--fg);
     overflow: auto;
     padding: var(--pad);
     position: relative;
   }
-  .panel:last-child { border-right: none; }
+  .panel::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: var(--rule);
+    background: var(--fg);
+    z-index: 3;
+  }
+  .panel:last-child::after { display: none; }
 
   /* The text panel is restructured so its controls can stay pinned while the
      reading content scrolls below them. */
@@ -238,8 +261,11 @@
   }
   /* Link blocks flow as one continuous reading. No borders, no extra padding
      between passages — just one line-height of breathing room so the meta
-     stays associated with the passage it opens. */
-  .link-block { margin-bottom: 0; }
+     stays associated with the passage it opens. The background transition
+     is so the selected-cell tint fades in (and out) smoothly instead of
+     snapping — matters most at the end of the boot sequence, when the
+     highlight lands after the text has finished writing itself. */
+  .link-block { margin-bottom: 0; transition: background 0.4s ease-out; }
   .link-block + .link-block { margin-top: 1.5em; }
   .link-block .meta {
     margin: 0 0 4px 0;
@@ -248,6 +274,67 @@
   /* The whole meta line is the hover target; give a subtle indication that
      it's interactive without making it look like a link. */
   .link-block .meta:hover { color: var(--fg); }
+
+  /* The currently selected link-block gets a faint tinted background that
+     bleeds out to the panel edges — pairs the highlighted tree node with
+     its row in the text column, so the reader's eye can map one onto the
+     other at a glance. Negative horizontal margins equal to the panel's
+     padding extend the fill beyond the text column's content box; the
+     small vertical padding inside keeps text off the top/bottom edge
+     without perturbing the flow spacing between blocks. */
+  .link-block.selected {
+    background: var(--sel-bg);
+    margin-left: calc(-1 * var(--pad));
+    margin-right: calc(-1 * var(--pad));
+    padding: 4px var(--pad);
+  }
+  /* Cancel the 4px top padding inherited by the first block so the
+     selected-top edge aligns with the controls band rule cleanly. */
+  .link-block + .link-block.selected { margin-top: calc(1.5em - 4px); }
+
+  /* --- Narration (sprawl-tts.js) --------------------------------------
+     While a link is being narrated, its body is re-rendered with each
+     word wrapped in <span class="tts-word">. Default state is hidden;
+     the tick loop in sprawl-tts.js adds .speaking when the voice reaches
+     each word and .spoken after it passes. Both map to visible, so the
+     prose "writes itself in" as the narrator speaks.
+     Using opacity (not display/visibility-hidden-with-layout) keeps
+     layout stable — the full passage reserves its final size up front,
+     so revealing a word doesn't shift anything on-screen. The rendered-
+     text override is temporary; stopping narration (or finishing a
+     link) restores the original .text-body HTML, including the entity
+     underlines. */
+  .tts-word { opacity: 0; transition: opacity 180ms ease-out; }
+  .tts-word.spoken,
+  .tts-word.speaking { opacity: 1; }
+  .act-play { cursor: pointer; }
+  /* PAUSE state of the per-link button and the centred global button.
+     Audible narration is in progress; clicking interrupts it. We surface
+     that with full-strength colour (var(--fg)) instead of the mute grey
+     every other control uses. */
+  .act-play.is-pause,
+  #tts-global.is-pause { color: var(--fg); }
+  /* Audiogram next to the global PAUSE button — three short vertical
+     bars that pulse while audio is playing. Heights are driven from JS
+     (sprawl-tts.js) by summing non-harmonic sine waves per bar, so the
+     motion looks organic and never loops visibly. Centred vertically
+     against the PAUSE text; em units let the bars track font scaling. */
+  #tts-bars {
+    display: none;
+    align-items: flex-end;   /* bars anchor at baseline, grow upward */
+    gap: 2px;
+    height: 1em;
+    margin-left: 8px;
+    line-height: 1;
+  }
+  #tts-global.is-pause + #tts-bars { display: inline-flex; }
+  #tts-bars > span {
+    display: block;
+    width: 2px;
+    height: 0.2em;
+    background: var(--fg);
+    transition: height 60ms linear;
+  }
 
   /* Tree panel — the wrap starts below the controls band so the top of the
      tree never sits under the reset/random/expand buttons. */
@@ -269,9 +356,15 @@
     stroke: var(--fg);
     stroke-width: var(--stroke);
     fill: var(--bg);
+    transition: fill 0.4s ease-out;
   }
   svg .node.in-path { stroke-width: calc(var(--stroke) * 1.5); }
   svg .node.selected { fill: var(--fg); }
+  /* Hover preview — filling a second node shows the reader what they'd
+     select if they clicked. Same fill as .selected; both can be visible
+     at once (the clicked node + whatever meta line the reader is
+     hovering in the text column). */
+  svg .node.hover-highlight { fill: var(--fg); }
 
   svg .recap-ring {
     stroke: var(--fg);
@@ -327,9 +420,111 @@
   }
   #entity-tooltip.visible { display: block; }
   #entity-tooltip .tip-head { margin-bottom: 4px; }
-  #entity-tooltip .tip-type { color: var(--mute); margin-left: 8px; letter-spacing: 0.04em; }</style>
+  #entity-tooltip .tip-type { color: var(--mute); margin-left: 8px; letter-spacing: 0.04em; }
+
+  /* ==========================================================================
+     Boot choreography.
+     `body.boot` is present from page-render time (set in the HTML) and the
+     JS boot sequence removes it once the staggered animations have had
+     time to finish. Everything that wants to animate in on first paint is
+     scoped under `body.boot`, so subsequent re-renders (clicking around,
+     resize, etc.) never replay these animations — the elements simply
+     inherit their default (final) state.
+
+     Stagger inputs come from JS:
+       - `--depth`        set on every SVG node + edge (by renderTree)
+       - `--length`       set on every SVG edge (the line's pixel length,
+                          used for the stroke-dash drawing trick)
+       - `--block-index`  set on every .link-block in the text column
+                          (by renderText; oldest ancestor = 0)
+
+     The sequence roughly runs:
+       0.0s  topbar rule sweeps in (left→right)
+       0.15s panel divider draws down (top→bottom)
+       0.2s  title/nav groups fade in, staggered
+       0.5s  panel controls fade in
+       ~0.8s tree nodes + edges cascade in by depth (data has arrived by now)
+       ~1.2s text blocks cascade in, meta fade → body wipe-down
+     ========================================================================== */
+
+  @keyframes drawH     { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @keyframes drawV     { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+  @keyframes fadeIn    { from { opacity: 0; }          to { opacity: 1; } }
+  @keyframes drawLine  { to   { stroke-dashoffset: 0; } }
+  @keyframes wipeDown  { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+
+  /* Topbar bottom rule and panel divider draw in from their anchors. */
+  body.boot .topbar::after {
+    transform: scaleX(0);
+    transform-origin: left center;
+    animation: drawH 0.5s ease-out forwards;
+  }
+  body.boot .panel::after {
+    transform: scaleY(0);
+    transform-origin: top center;
+    animation: drawV 0.6s ease-out 0.15s forwards;
+  }
+
+  /* Titles, stats, nav groups, and panel controls fade in with a small
+     stagger. Grouped so the fade order traces the reader's eye from the
+     left-hand SPRAWL wordmark rightward across the bar. */
+  body.boot .topbar .title-group,
+  body.boot .topbar .nav-middle,
+  body.boot .topbar .nav-feed,
+  body.boot .topbar .nav-marketplace,
+  body.boot .topbar .nav-right,
+  body.boot .panel-controls {
+    opacity: 0;
+    animation: fadeIn 0.4s ease-out forwards;
+  }
+  body.boot .topbar .title-group    { animation-delay: 0.2s;  }
+  body.boot .topbar .nav-middle     { animation-delay: 0.3s;  }
+  body.boot .topbar .nav-feed       { animation-delay: 0.35s; }
+  body.boot .topbar .nav-marketplace{ animation-delay: 0.4s;  }
+  body.boot .topbar .nav-right      { animation-delay: 0.45s; }
+  body.boot .panel-controls         { animation-delay: 0.5s;  }
+
+  /* Tree edges draw themselves in by depth via stroke-dashoffset; nodes
+     fade in on the same cadence. Small base delay so the topbar rule
+     finishes first. 20ms per depth keeps even a 40-deep tree under 1s. */
+  body.boot svg .edge {
+    stroke-dasharray: var(--length);
+    stroke-dashoffset: var(--length);
+    animation: drawLine 0.25s ease-out calc(var(--depth, 0) * 20ms) forwards;
+  }
+  body.boot svg .node {
+    opacity: 0;
+    animation: fadeIn 0.2s ease-out calc(var(--depth, 0) * 20ms + 50ms) forwards;
+  }
+
+  /* Text column: every link-block's meta line fades in, then its body
+     wipes down like text being typed/generated. Stagger is per-block
+     so the reader sees the ancestry materialize top→down, oldest first. */
+  body.boot .link-block .meta {
+    opacity: 0;
+    animation: fadeIn 0.3s ease-out calc(var(--block-index, 0) * 35ms) forwards;
+  }
+  body.boot .link-block .text-body {
+    clip-path: inset(0 0 100% 0);
+    animation: wipeDown 0.45s ease-out calc(var(--block-index, 0) * 35ms + 120ms) forwards;
+  }
+
+  /* Suppress the "selected" highlights for a short window so they don't
+     pre-empt the text-wipe animation. Scoped to its own body class
+     (highlight-wait) so it can be removed independently from .boot —
+     the text-wipe needs the full boot window, but the highlights should
+     land soon after the content starts appearing, not at the very end. */
+  body.highlight-wait .link-block.selected { background: transparent; }
+  body.highlight-wait svg .node.selected   { fill: var(--bg); }
+
+  /* Hide the initial "loading…" placeholder in the text column during
+     boot so it doesn't flash before the first link-block wipes in. Once
+     body.boot is removed at 3.5s, the placeholder (if somehow still
+     visible due to a slow fetch) becomes visible again. */
+  body.boot .boot-loading { opacity: 0; }</style>
+<link rel="stylesheet" href="sprawl-modal.css">
 </head>
-<body>
+<body class="boot highlight-wait">
 
 <div class="topbar">
   <div class="title-group">
@@ -352,6 +547,7 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
@@ -359,13 +555,19 @@
 <div class="layout">
   <section class="panel" id="text-panel">
     <div class="panel-controls panel-controls-left" id="text-path-stats"></div>
+    <div class="panel-controls panel-controls-center">
+      <a id="tts-global" class="ctl" style="display:none" title="play / pause narration">PLAY</a>
+      <!-- Sibling of #tts-global so CSS can show it only when the button
+           is in its .is-pause state (i.e., audio actively playing). -->
+      <span id="tts-bars" aria-hidden="true"><span></span><span></span><span></span></span>
+    </div>
     <div class="panel-controls">
       <a id="toggle-meta"   class="ctl" title="toggle link info">INFO</a>
       <span class="ctl-sep">/</span>
       <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
     </div>
     <div class="panel-scroll">
-      <div id="text-content" class="empty">loading…</div>
+      <div id="text-content" class="empty"><span class="boot-loading">loading…</span></div>
     </div>
   </section>
 
@@ -390,6 +592,12 @@
 
 
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
+<script src="sprawl-tts.js"></script>
 <script>
 (() => {
   // --- State ---
@@ -412,6 +620,13 @@
     //  - append `COLLECTED BY <owner>` to the text-column meta line
     collectedLinkOwner: new Map(),   // linkId → owner address
     nameByAddr: new Map(),           // address → registered name (for display)
+    // Vote state. Populated when the wallet is connected and is a
+    // registered citizen; used to hide the VOTE affordance from
+    // unregistered visitors and from links the viewer has already
+    // voted on.
+    votedLinkIds: new Set(),         // Set<linkId>
+    voterRegistered: false,          // is the connected wallet a citizen?
+    lastVoterAddr: null,             // tracks which wallet votedLinkIds is for
   };
 
   // How many ancestors to frame after a click. The user can wheel-zoom out to
@@ -617,15 +832,21 @@
     const NS = "http://www.w3.org/2000/svg";
 
     // Edges. dataset.child = the child id, so the selection-update pass can
-    // toggle .in-path without touching layout.
+    // toggle .in-path without touching layout. --depth and --length feed
+    // the boot animation: dashoffset sweeps along the line's own length,
+    // staggered by the child's depth in the tree.
     for (const [p, c] of edges) {
+      const x1 = xToPx(p.x), y1 = yToPx(p.depth);
+      const x2 = xToPx(c.x), y2 = yToPx(c.depth);
       const line = document.createElementNS(NS, "line");
-      line.setAttribute("x1", xToPx(p.x));
-      line.setAttribute("y1", yToPx(p.depth));
-      line.setAttribute("x2", xToPx(c.x));
-      line.setAttribute("y2", yToPx(c.depth));
+      line.setAttribute("x1", x1);
+      line.setAttribute("y1", y1);
+      line.setAttribute("x2", x2);
+      line.setAttribute("y2", y2);
       line.setAttribute("class", "edge");
       line.dataset.child = c.id;
+      line.style.setProperty("--depth", c.depth);
+      line.style.setProperty("--length", Math.hypot(x2 - x1, y2 - y1));
       svg.appendChild(line);
     }
 
@@ -652,6 +873,7 @@
       }
       c.setAttribute("class", collected ? "node collected" : "node");
       c.dataset.id = n.id;
+      c.style.setProperty("--depth", n.depth);
       const title = document.createElementNS(NS, "title");
       const ownerAddr = state.collectedLinkOwner.get(n.id);
       const ownerHint = ownerAddr ? ` | collected by ${state.nameByAddr.get(ownerAddr) || ownerAddr.slice(0,6)}` : "";
@@ -820,16 +1042,25 @@
     });
   }
 
-  // Classlist-only update. The filled node follows hoverId when set,
-  // otherwise it's the clicked selectedId. The thicker stroke runs along the
-  // branch from genesis to selectedId (hover never changes the path).
+  // Classlist-only update. Two separate visual states:
+  //   .selected        — pinned to the clicked link. Never moves on hover.
+  //   .hover-highlight — follows the meta-line the reader is hovering in
+  //                      the text column. Visually identical to .selected
+  //                      (same fill), but only applies to a node *other*
+  //                      than the selected one — so hovering the selected
+  //                      node is a no-op and the two classes never compete
+  //                      on the same element.
+  // The thicker stroke runs along the branch from genesis to selectedId;
+  // hover never changes the path.
   function updateTreeSelection() {
     const svg = document.getElementById("tree-svg");
     if (!svg) return;
     const ancestryIds = new Set(
       ancestryOf(state.selectedId).map(l => l.id)
     );
-    const highlightId = state.hoverId || state.selectedId;
+    const selectedId = state.selectedId;
+    const hoverId = state.hoverId && state.hoverId !== selectedId ? state.hoverId : null;
+    const readoutId = hoverId || selectedId;
     const r = state.nodeR || 4;
     // Nodes come in two shapes: circles (uncollected) and rects (collected).
     // Both carry class="node" and share the same in-path / selected classes;
@@ -837,10 +1068,12 @@
     svg.querySelectorAll(".node").forEach(el => {
       const id = el.dataset.id;
       const inPath = ancestryIds.has(id);
-      const isSelected = id === highlightId;
+      const isSelected = id === selectedId;
+      const isHover = id === hoverId;
       el.classList.toggle("in-path", inPath);
       el.classList.toggle("selected", isSelected);
-      const size = (inPath || isSelected) ? r * 1.5 : r;
+      el.classList.toggle("hover-highlight", isHover);
+      const size = (inPath || isSelected || isHover) ? r * 1.5 : r;
       if (el.tagName === "rect") {
         // Keep the rect centered on the node's original (cx, cy). We stored
         // nodeR at initial layout, so positions are relative to that.
@@ -860,7 +1093,7 @@
     svg.querySelectorAll("line.edge").forEach(el => {
       el.classList.toggle("in-path", ancestryIds.has(el.dataset.child));
     });
-    updateTreeNodeInfo(highlightId);
+    updateTreeNodeInfo(readoutId);
     updatePathStats();
   }
 
@@ -969,6 +1202,12 @@
     }
     return path.reverse();
   }
+
+  // Expose to sprawl-tts.js so the narration session controller can read
+  // the current selection and walk the ancestry without reaching into the
+  // IIFE's private state.
+  window.state       = state;
+  window.ancestryOf  = ancestryOf;
 
   const ENTITY_RE = /\[([a-z0-9-]+)\]/g;
   const ARC_RE    = /\{([a-z0-9-]+)\}/g;
@@ -1085,7 +1324,7 @@
     // Render the entire ancestry from genesis to the selected link — like
     // opening a book at a page, with all prior pages available above.
     const path = ancestryOf(id);
-    target.innerHTML = path.map(link => {
+    target.innerHTML = path.map((link, i) => {
       // Author name links to their profile. onclick stop-prop so clicking the
       // name doesn't also re-select the current link via the meta-line handler.
       const authorHref = "author.html?addr=" + encodeURIComponent(link.author.id);
@@ -1099,10 +1338,38 @@
         const ownerHref  = "author.html?addr=" + encodeURIComponent(ownerAddr);
         collectedHtml = ` | COLLECTED BY <a href="${ownerHref}" onclick="event.stopPropagation()">${escapeHtml(ownerLabel)}</a>`;
       }
-      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}${collectedHtml}`;
+      // VOTE affordance. Shown when the viewer has a connected wallet on
+      // Sepolia, is registered (implicitly checked via SprawlAPI's reply
+      // in refreshVoterState), hasn't already voted on this link, and
+      // the link isn't cleared. Free to cast — pure signature, no tx.
+      const canVote = sprawlWallet.isConnected()
+        && sprawlWallet.isOnSepolia()
+        && state.voterRegistered
+        && !state.votedLinkIds.has(String(link.id))
+        && !link.cleared;
+      const voteActionHtml = canVote
+        ? ` | <a class="act-vote" href="#" data-link-id="${escapeHtml(link.id)}">VOTE</a>`
+        : "";
+      // COLLECT affordance at the end of the meta line for any link that
+      // isn't already on-chain. The click handler is bound below, right
+      // after innerHTML is set, with stopPropagation so it doesn't also
+      // trigger the meta-line "re-select this link" handler.
+      const collectActionHtml = (!ownerAddr && !link.cleared && link.id !== "0")
+        ? ` | <a class="act-collect" href="#" data-link-id="${escapeHtml(link.id)}">COLLECT</a>`
+        : "";
+      // PLAY affordance. Omitted on cleared links (nothing to narrate).
+      // Genesis (link 0) IS narratable — unlike COLLECT, which is gated
+      // by the contract's self-collection rule, PLAY just reads text.
+      const playActionHtml = !link.cleared
+        ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">PLAY</a>`
+        : "";
+      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
       const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
       const selected = link.id === id ? " selected" : "";
-      return `<div class="link-block${selected}" data-id="${link.id}">
+      // --block-index feeds the boot-stagger (see body.boot rules in CSS).
+      // Ignored on re-renders after boot ends, since those rules no longer
+      // match — the block just inherits its default (fully visible) state.
+      return `<div class="link-block${selected}" data-id="${link.id}" style="--block-index: ${i};">
         <div class="meta">${meta}</div>
         <div class="text-body">${body}</div>
       </div>`;
@@ -1111,6 +1378,36 @@
     // Scroll the selected (latest in the path) into view.
     const selected = target.querySelector(".link-block.selected");
     if (selected) selected.scrollIntoView({ block: "start", behavior: "instant" });
+
+    // Wire the COLLECT and VOTE anchors in the meta lines. stopPropagation
+    // on both keeps the click from also firing the meta's "re-select this
+    // link" path.
+    target.querySelectorAll(".act-collect").forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        const linkId = el.dataset.linkId;
+        const link = state.byId[linkId];
+        if (!link) return;
+        sprawlActions.collect("link", linkId, {
+          authorName: link.author.name || link.author.id,
+        });
+      });
+    });
+    target.querySelectorAll(".act-vote").forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        sprawlActions.vote(el.dataset.linkId);
+      });
+    });
+    target.querySelectorAll(".act-play").forEach(el => {
+      el.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        if (window.SprawlTTS) window.SprawlTTS.onLinkButtonClick(el.dataset.linkId);
+      });
+    });
 
     bindTextHover();
   }
@@ -1143,6 +1440,13 @@
   function selectLink(id, opts) {
     opts = opts || {};
     const newId = String(id);
+
+    // Narration is tied to the visible ancestry. If the reader jumps to
+    // a different branch, an in-progress session is no longer meaningful
+    // (its queue points at link-blocks about to be replaced).
+    if (window.SprawlTTS && String(state.selectedId) !== newId) {
+      window.SprawlTTS.stopSession();
+    }
 
     // Prefix-truncate path: when the click came from a meta line in the text
     // column, the clicked link is guaranteed to be an ancestor of the current
@@ -1440,6 +1744,91 @@
         frameAncestors(AUTO_FRAME_COUNT);
       }
     });
+
+    // Optimistic UI on successful link collect. sprawl-actions dispatches
+    // sprawl:collected after tx confirmation; we update the local map and
+    // re-render so the reader sees the "COLLECTED BY …" stamp and the
+    // tree node flips from circle to rect right away, without waiting on
+    // the subgraph. renderTree() preserves the current viewBox, so the
+    // user's zoom/pan stays exactly where it was.
+    window.addEventListener("sprawl:collected", (e) => {
+      const detail = (e && e.detail) || {};
+      if (detail.kind !== "link") return;
+      const { nativeId, owner } = detail;
+      if (!nativeId || !owner) return;
+      state.collectedLinkOwner.set(String(nativeId), owner.toLowerCase());
+      renderText();
+      renderTree();
+    });
+
+    // Voter state — fetched when the wallet connects, refetched when the
+    // account changes, cleared when the wallet disconnects. Drives the
+    // VOTE affordance per link in renderText. We track lastVoterAddr so
+    // unrelated wallet events (chain switch, same account reselect) don't
+    // thrash the API with a refetch.
+    async function refreshVoterState() {
+      const addr = sprawlWallet.getAddress();
+      if (!addr) {
+        state.votedLinkIds = new Set();
+        state.voterRegistered = false;
+        state.lastVoterAddr = null;
+        return;
+      }
+      // Two parallel fetches: the citizen record tells us whether the
+      // wallet is registered (VOTE gate), the vote list tells us which
+      // links are already voted on (also a gate). Both fail-soft.
+      try {
+        const [citizen, votes] = await Promise.all([
+          SprawlAPI.citizen ? SprawlAPI.citizen(addr) : fetch(`${(window.SPRAWL_API_URL || "https://d1pdbr4fdk59bz.cloudfront.net").replace(/\/$/, "")}/citizens/${addr.toLowerCase()}`).then(r => r.ok ? r.json() : null),
+          SprawlAPI.votesByVoter(addr, 1000),
+        ]);
+        state.voterRegistered = !!(citizen && citizen.isRegistered !== false);
+        const items = (votes && votes.items) || [];
+        state.votedLinkIds = new Set(items.map(v => String(v.linkId)));
+        state.lastVoterAddr = addr;
+      } catch {
+        state.votedLinkIds = new Set();
+        state.voterRegistered = false;
+      }
+    }
+    sprawlWallet.on(async (ws) => {
+      const now = ws.address || null;
+      if (now !== state.lastVoterAddr) {
+        await refreshVoterState();
+        renderText();
+      } else {
+        // Address unchanged but some other field moved (e.g., chainId).
+        // The VOTE gate depends on isOnSepolia too, so re-render.
+        renderText();
+      }
+    });
+    // Initial fetch in case the wallet was already authorized before
+    // page load (sprawl-wallet's silent init populates state quickly).
+    refreshVoterState().then(() => { if (state.selectedId) renderText(); });
+
+    // Optimistic UI on successful vote: add to the local set, bump the
+    // link's cached voteCount, and re-render the text column.
+    window.addEventListener("sprawl:voted", (e) => {
+      const { linkId } = (e && e.detail) || {};
+      if (!linkId) return;
+      state.votedLinkIds.add(String(linkId));
+      const link = state.byId[String(linkId)];
+      if (link) link.voteCount = (Number(link.voteCount) || 0) + 1;
+      renderText();
+    });
+
+    // Two separate timers end two separate windows:
+    //   highlight-wait — short. Suppresses the selected cell-tint and
+    //     the filled selected node until shortly after the text starts
+    //     appearing, so the highlights land just behind the content
+    //     instead of hanging back.
+    //   boot           — longer. Gates the staggered reveal animations
+    //     themselves (topbar rule, panel divider, tree nodes + edges,
+    //     text blocks). Must be long enough to cover the worst-case
+    //     ancestry length, otherwise the tail of the text column cuts
+    //     off mid-wipe.
+    setTimeout(() => document.body.classList.remove("highlight-wait"), 2400);
+    setTimeout(() => document.body.classList.remove("boot"),           3500);
   })();
 })();
 </script>

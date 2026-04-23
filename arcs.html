@@ -96,11 +96,12 @@
   .arc .id { }
   .arc .desc { margin-top: 2px; }
   .arc .meta { color: var(--mute); margin-top: 4px; letter-spacing: 0.04em; }
-  .legend { margin-bottom: 32px; color: var(--mute); }
-  .legend span { color: var(--fg); letter-spacing: 0.04em; }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -120,15 +121,13 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <main>
-  <div class="legend">
-    Planning notes the creator plants at a specific link, picked up (or not) by later links in the same branch that tag them with <span>{arc-id}</span>. An arc has no state beyond its anchor and the references it accumulates.
-  </div>
-  <div id="list">loading…</div>
+  <div id="list"><span class="boot-loading">loading…</span></div>
 </main>
 
 <script>
@@ -153,6 +152,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   function escapeHtml(s) {
@@ -199,6 +203,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       const creatorHref = "author.html?addr=" + encodeURIComponent(a.creator);
       const creatorHtml = `<a href="${creatorHref}">${escapeHtml(creatorName)}</a>`;
       const collectedMeta = collectedByMarkup(a.arcId);
+      // COLLECT affordance only when the arc isn't already on-chain.
+      // Click handling is delegated on #list below.
+      const collectAction = !collectedMeta
+        ? `<div class="meta arc-actions"><a class="act-collect" href="#" data-arc-id="${escapeHtml(a.arcId)}">COLLECT</a></div>`
+        : "";
       // References deferred until click to avoid one API call per arc at
       // page load. Click handler below replaces the placeholder in place.
       html.push(`<div class="arc" data-arc-id="${escapeHtml(a.arcId)}">
@@ -207,13 +216,24 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         <div class="meta">BY ${creatorHtml}</div>
         <div class="meta">ANCHORED AT <a href="index.html#link-${anchorId}">#${fmt(anchorId)}</a></div>
         ${collectedMeta ? `<div class="meta">${collectedMeta}</div>` : ""}
+        ${collectAction}
         <div class="meta references-row"><a class="references-toggle" href="#">MENTIONS: show</a></div>
       </div>`);
     }
     document.getElementById("list").innerHTML = html.join("") || "(none yet)";
+    sprawlBoot.stagger(document.getElementById("list"));
 
-    // Lazy references: fetch only when the user expands a row.
-    document.getElementById("list").addEventListener("click", async (ev) => {
+    const listEl = document.getElementById("list");
+
+    // Delegated handler: COLLECT first, then the lazy-references fallback.
+    listEl.addEventListener("click", async (ev) => {
+      const collectBtn = ev.target.closest(".act-collect");
+      if (collectBtn) {
+        ev.preventDefault();
+        const arcId = collectBtn.dataset.arcId;
+        sprawlActions.collect("arc", arcId);
+        return;
+      }
       const toggle = ev.target.closest(".references-toggle");
       if (!toggle) return;
       ev.preventDefault();
@@ -230,6 +250,26 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       } catch (err) {
         row.textContent = "could not load mentions";
       }
+    });
+
+    // Optimistic UI after a successful arc collect. Same pattern as
+    // entities.html: drop the COLLECT row, insert a COLLECTED BY line.
+    window.addEventListener("sprawl:collected", (ev) => {
+      const d = (ev && ev.detail) || {};
+      if (d.kind !== "arc") return;
+      const row = listEl.querySelector(`.arc[data-arc-id="${CSS.escape(d.nativeId)}"]`);
+      if (!row) return;
+      const actionEl = row.querySelector(".arc-actions");
+      if (actionEl) actionEl.remove();
+      const ownerAddr = (d.owner || "").toLowerCase();
+      const ownerName = nameByAddr[ownerAddr];
+      const label = ownerName ? ownerName.toUpperCase() : ownerAddr.slice(0, 6) + "…" + ownerAddr.slice(-4);
+      const href  = "author.html?addr=" + encodeURIComponent(ownerAddr);
+      const meta  = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `COLLECTED BY <a href="${href}">${escapeHtml(label)}</a>`;
+      const references = row.querySelector(".references-row");
+      row.insertBefore(meta, references);
     });
   } catch (e) {
     document.getElementById("list").textContent = "Could not load arcs: " + e.message;

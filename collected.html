@@ -74,7 +74,10 @@
   .topbar nav { display: flex; gap: 18px; }
   .topbar nav a.active { text-decoration: underline; }
 
-  /* Three equal-width columns filling the viewport, separated by rules. */
+  /* Three equal-width columns filling the viewport, separated by rules.
+     The right-side rule on each column (except the last) is a ::after
+     pseudo instead of a border, so the boot animation can draw it in
+     top→down. `position: relative` on .col anchors that pseudo. */
   .columns {
     position: fixed;
     top: var(--topbar-h); left: 0; right: 0; bottom: 0;
@@ -82,12 +85,25 @@
     grid-template-columns: 1fr 1fr 1fr;
   }
   .col {
-    border-right: var(--rule) solid var(--fg);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    position: relative;
   }
-  .col:last-child { border-right: none; }
+  .col::after {
+    content: "";
+    position: absolute;
+    top: 0; bottom: 0; right: 0;
+    width: var(--rule);
+    background: var(--fg);
+  }
+  .col:last-child::after { display: none; }
+  body.boot .col::after {
+    transform: scaleY(0);
+    transform-origin: top center;
+    animation: boot-drawV 0.6s ease-out 0.15s forwards;
+  }
+  @keyframes boot-drawV { from { transform: scaleY(0); } to { transform: scaleY(1); } }
 
   /* Title row pinned at the top of each column, isolated from the feed by
      a horizontal rule. Height locked to --controls-h so it lines up exactly
@@ -108,6 +124,16 @@
     font-weight: normal;
     letter-spacing: 0.08em;
     background: var(--bg);
+  }
+  /* Global stat pinned to the right of each column header. `margin-left:
+     auto` pushes it across the flex row so the title stays anchored on
+     the left and the value reads on the right, with the column's own
+     padding providing the gutter. Starts at "—" and populates once the
+     stats query returns. */
+  .col > h2 .stat {
+    color: var(--mute);
+    letter-spacing: 0.04em;
+    margin-left: auto;
   }
   .col-body {
     padding: var(--pad);
@@ -133,6 +159,25 @@
   .price { color: var(--fg); }
   .empty { color: var(--mute); }
 
+  /* Listing top line: the asset label + price on the left, the BUY
+     action pushed to the right with space-between. `align-items:
+     baseline` keeps BUY aligned with the price's text baseline rather
+     than floating vertically centered. */
+  .listing-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+  }
+  .listing-head .act-buy {
+    cursor: pointer;
+    user-select: none;
+    color: var(--fg);
+    letter-spacing: 0.04em;
+  }
+  .listing-head .act-buy:hover { text-decoration: underline; }
+  .listing-head .act-buy.hidden { display: none; }
+
   /* Narrow screens: stack the columns top-to-bottom. */
   @media (max-width: 900px) {
     html, body { overflow: auto; height: auto; }
@@ -141,16 +186,19 @@
       display: block;
     }
     .col {
-      border-right: none;
-      border-bottom: var(--rule) solid var(--fg);
       overflow: visible;
+      border-bottom: var(--rule) solid var(--fg);
     }
+    .col::after { display: none; }  /* vertical divider off on narrow screens */
     .col:first-child { margin-top: var(--topbar-h); }
     .col-body { overflow: visible; }
   }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -170,22 +218,23 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <div class="columns">
   <section class="col" id="col-collectors">
-    <h2>COLLECTORS</h2>
-    <div class="col-body" id="collectors-body">loading…</div>
+    <h2>COLLECTORS <span class="stat" id="stat-collectors">—</span></h2>
+    <div class="col-body" id="collectors-body"><span class="boot-loading">loading…</span></div>
   </section>
   <section class="col" id="col-sales">
-    <h2>SALES</h2>
-    <div class="col-body" id="sales-body">loading…</div>
+    <h2>SALES <span class="stat" id="stat-sales">—</span></h2>
+    <div class="col-body" id="sales-body"><span class="boot-loading">loading…</span></div>
   </section>
   <section class="col" id="col-listings">
-    <h2>LISTINGS</h2>
-    <div class="col-body" id="listings-body">loading…</div>
+    <h2>LISTINGS <span class="stat" id="stat-listings">—</span></h2>
+    <div class="col-body" id="listings-body"><span class="boot-loading">loading…</span></div>
   </section>
 </div>
 
@@ -211,6 +260,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   function escapeHtml(s) {
@@ -347,6 +401,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         }
       }
       el.innerHTML = html.join("");
+      sprawlBoot.stagger(el);
       if (assets.length >= collectorsLimit) {
         attachLoadMore(el, async () => { collectorsLimit += 50; await renderCollectors(); });
       }
@@ -385,11 +440,12 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
             <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
             <span class="price">${formatEth(s.price)}</span>
           </div>
-          <div class="meta">${tag} · ${txLink}</div>
+          <div class="meta">${tag} | ${txLink}</div>
           <div class="meta"><a href="${authorHref(s.seller)}">${escapeHtml(displayName(s.seller))}</a> → <a href="${authorHref(s.buyer)}">${escapeHtml(displayName(s.buyer))}</a></div>
         </div>`);
       }
       el.innerHTML = html.join("");
+      sprawlBoot.stagger(el);
       if (sales.length >= salesLimit) {
         attachLoadMore(el, async () => { salesLimit += 50; await renderSales(); });
       }
@@ -416,16 +472,32 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const a = l.asset || {};
         const creatorAddr = a.creator && a.creator.id;
         const creatorLabel = creatorAddr ? displayName(creatorAddr) : "—";
-        html.push(`<div class="row">
-          <div>
-            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
-            <span class="price">${formatEth(l.price)}</span>
+        // data-* attributes on the row carry everything the BUY handler
+        // needs (kind / nativeId / priceWei / owner / creator) without
+        // a secondary lookup. data-owner drives the "hide BUY when
+        // viewer == owner" sync that runs on every wallet-state change.
+        const creatorRegName = (a.creator && a.creator.name) || "";
+        html.push(`<div class="row listing-row"
+             data-kind="${escapeHtml(a.kind)}"
+             data-native-id="${escapeHtml(String(a.nativeId))}"
+             data-price-wei="${escapeHtml(String(l.price))}"
+             data-owner="${escapeHtml((l.owner || "").toLowerCase())}"
+             data-creator="${escapeHtml((creatorAddr || "").toLowerCase())}"
+             data-creator-name="${escapeHtml(creatorRegName)}">
+          <div class="listing-head">
+            <span>
+              <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+              <span class="price">${formatEth(l.price)}</span>
+            </span>
+            <a class="act-buy" href="#">BUY</a>
           </div>
           <div class="meta">by <a href="${authorHref(creatorAddr)}">${escapeHtml(creatorLabel)}</a></div>
           <div class="meta">owned by <a href="${authorHref(l.owner)}">${escapeHtml(displayName(l.owner))}</a></div>
         </div>`);
       }
       el.innerHTML = html.join("");
+      sprawlBoot.stagger(el);
+      syncBuyVisibility();
       if (listings.length >= listingsLimit) {
         attachLoadMore(el, async () => { listingsLimit += 50; await renderListings(); });
       }
@@ -434,10 +506,99 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     }
   }
 
+  // Hide the BUY button on any listing whose owner matches the connected
+  // wallet (the contract rejects self-purchase; no reason to offer it).
+  // Runs after every render + every wallet-state change.
+  function syncBuyVisibility() {
+    const me = sprawlWallet && sprawlWallet.isConnected() ? sprawlWallet.getAddress() : null;
+    document.querySelectorAll(".listing-row").forEach(row => {
+      const btn = row.querySelector(".act-buy");
+      if (!btn) return;
+      const owner = (row.dataset.owner || "").toLowerCase();
+      const hide = me && me === owner;
+      btn.classList.toggle("hidden", !!hide);
+    });
+  }
+
+  // Global stats shown next to each column title. Runs in parallel with
+  // the column renders since it has no dependency on the name map.
+  //   Collectors = unique owner addresses across all on-chain collected
+  //                assets. ProtocolStats doesn't track this directly so
+  //                we fold a first-1000 owner projection into a Set.
+  //   Sales      = totalVolume from ProtocolStats (wei, formatted as ETH).
+  //   Listings   = count of active listings (price > 0). Again not a
+  //                direct stat, but the first-1000 id projection is
+  //                small and gives the count client-side.
+  // The 1000 cap matches the subgraph's per-query limit; at current
+  // scale we're well below it. If either set ever grows past 1000,
+  // switch to paginated counting or add a dedicated aggregate field
+  // to ProtocolStats in the subgraph.
+  async function renderStats() {
+    try {
+      const data = await query(`{
+        protocolStats(id: "global") { totalVolume }
+        collectedAssets(first: 1000) { owner }
+        listings(first: 1000, where: { price_gt: "0" }) { id }
+      }`);
+      const volume = (data.protocolStats && data.protocolStats.totalVolume) || "0";
+      const uniqueOwners = new Set((data.collectedAssets || []).map(a => (a.owner || "").toLowerCase()));
+      const activeListings = (data.listings || []).length;
+      document.getElementById("stat-collectors").textContent = uniqueOwners.size;
+      document.getElementById("stat-sales").textContent      = formatEth(volume);
+      document.getElementById("stat-listings").textContent   = activeListings;
+    } catch (e) {
+      // Leave the "—" placeholders if the stats query fails; the columns
+      // themselves are independent and will still render.
+    }
+  }
+
+  // --- BUY click + wallet-state + post-action listeners -------------
+  // Click delegation for the BUY affordance on any .listing-row. We
+  // hand off to sprawlActions with the creator + owner we already
+  // know from the listing query, so the modal doesn't have to
+  // re-fetch them.
+  document.body.addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".act-buy");
+    if (!btn) return;
+    ev.preventDefault();
+    const row = btn.closest(".listing-row");
+    if (!row) return;
+    const kind = (row.dataset.kind || "").toLowerCase();
+    const nativeId = row.dataset.nativeId;
+    const priceWei = row.dataset.priceWei;
+    const ownerAddr = (row.dataset.owner || "").toLowerCase();
+    const creatorAddr = (row.dataset.creator || "").toLowerCase();
+    const creatorName = row.dataset.creatorName || "";
+    sprawlActions.buy(kind, nativeId, priceWei, {
+      creatorAddr, creatorName,
+      ownerAddr,
+      ownerName: nameByAddr[ownerAddr] || "",
+    });
+  });
+
+  // Re-sync BUY visibility every time the wallet state changes so
+  // "owner == viewer" stays accurate as the user switches accounts.
+  if (window.sprawlWallet) sprawlWallet.on(() => syncBuyVisibility());
+
+  // Optimistic updates. On a successful purchase we drop the row from
+  // the LISTINGS column (the subgraph will surface it under the new
+  // owner in COLLECTORS shortly). Same pattern for UNLIST — the row
+  // no longer belongs in LISTINGS either.
+  function removeListingRow(kind, nativeId) {
+    const want = String(kind || "").toLowerCase();
+    const wantId = String(nativeId);
+    document.querySelectorAll(".listing-row").forEach(row => {
+      const k = (row.dataset.kind || "").toLowerCase();
+      if (k === want && String(row.dataset.nativeId) === wantId) row.remove();
+    });
+  }
+  window.addEventListener("sprawl:bought",   (e) => removeListingRow(e.detail.kind, e.detail.nativeId));
+  window.addEventListener("sprawl:unlisted", (e) => removeListingRow(e.detail.kind, e.detail.nativeId));
+
   // Load the name map first so every column can resolve usernames. Then
-  // render all three columns in parallel.
+  // render all three columns and the global stats in parallel.
   await loadNames();
-  await Promise.all([renderCollectors(), renderSales(), renderListings()]);
+  await Promise.all([renderStats(), renderCollectors(), renderSales(), renderListings()]);
 })();
 </script>
 </body>

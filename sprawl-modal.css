@@ -1,0 +1,156 @@
+/* =============================================================
+   Sprawl — shared modal framework.
+
+   Used by the wallet/action flows (collect, buy, list, unlist,
+   withdraw) to surface a transient dialog on top of any page.
+   Visual style matches the rest of the site:
+     - monospace 13px, 1px borders, no shadows
+     - foreground + background follow the page's --fg / --bg
+       variables, so dark mode inverts in one step
+     - caps labels, letter-spacing: 0.08em
+   ============================================================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 24px;
+}
+html.dark .modal-overlay { background: rgba(255, 255, 255, 0.15); }
+.modal-overlay.visible { display: flex; }
+
+.modal {
+  background: var(--bg);
+  color: var(--fg);
+  border: var(--rule, 1px) solid var(--fg);
+  min-width: 320px;
+  max-width: 720px;
+  width: 100%;
+  font-family: 'Sprawl Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: var(--font-size, 13px);
+  line-height: var(--line-height, 1.5);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: var(--rule, 1px) solid var(--fg);
+  letter-spacing: 0.08em;
+}
+.modal-head .close {
+  cursor: pointer;
+  user-select: none;
+  color: var(--mute, #888);
+  letter-spacing: 0.04em;
+}
+.modal-head .close:hover { color: var(--fg); }
+
+.modal-body { padding: 14px; }
+
+/* A single info row inside the body: label left, value right. Used
+   for preview blocks (ITEM, PRICE, etc.). */
+.modal-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 6px;
+  letter-spacing: 0.04em;
+}
+.modal-row:last-child { margin-bottom: 0; }
+.modal-row .k { color: var(--mute, #888); }
+.modal-row .v { text-align: right; overflow-wrap: anywhere; }
+
+/* Single-line modifier: keeps the value on one row with an ellipsis
+   when it overflows. Used for the MENTIONS row in the BUY preview. */
+.modal-row.oneline .v {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* Spacer modifier: bumps the top margin so the row visually separates
+   from the rows above it. Used on the PRICE row in BUY so the price
+   has its own breathing room below the item details. */
+.modal-row.spaced-above { margin-top: 14px; }
+
+/* Stacked variant for content that's long enough to wrap more than a
+   line or two (e.g., a link's text, an entity's description). Label
+   above, value below-left so the prose reads naturally instead of
+   right-aligning. */
+.modal-row-full {
+  margin-bottom: 10px;
+  letter-spacing: 0.04em;
+}
+.modal-row-full:last-child { margin-bottom: 0; }
+.modal-row-full .k { display: block; color: var(--mute, #888); margin-bottom: 2px; }
+.modal-row-full .v {
+  display: block;
+  color: var(--fg);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  text-align: justify;
+  hyphens: auto;
+  max-height: 160px;
+  overflow-y: auto;
+}
+
+.modal-text {
+  margin-top: 10px;
+  color: var(--fg);
+}
+.modal-text.muted { color: var(--mute, #888); letter-spacing: 0.04em; }
+
+/* Inline price input (used by LIST). Same typography as the rest of
+   the page; thin underline so it reads as a field without getting
+   boxy. */
+.modal-input {
+  background: transparent;
+  border: none;
+  border-bottom: var(--rule, 1px) solid var(--fg);
+  color: var(--fg);
+  font: inherit;
+  letter-spacing: inherit;
+  padding: 2px 4px;
+  outline: none;
+  width: 140px;
+  text-align: right;
+}
+
+.modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  padding: 10px 14px;
+  border-top: var(--rule, 1px) solid var(--fg);
+  letter-spacing: 0.08em;
+}
+.modal-foot a,
+.modal-foot .btn {
+  cursor: pointer;
+  user-select: none;
+}
+.modal-foot .btn-primary { color: var(--fg); }
+.modal-foot .btn-muted   { color: var(--mute, #888); }
+.modal-foot .btn-muted:hover  { color: var(--fg); text-decoration: underline; }
+.modal-foot .btn-primary:hover { text-decoration: underline; }
+.modal-foot .btn[disabled],
+.modal-foot .btn.disabled {
+  color: var(--mute, #888);
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Etherscan link surfaced after a tx is broadcast. */
+.modal-tx-link {
+  color: var(--mute, #888);
+  letter-spacing: 0.04em;
+  margin-top: 8px;
+}
+.modal-tx-link a { color: var(--fg); text-decoration: underline; }

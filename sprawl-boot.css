@@ -1,0 +1,74 @@
+/* =============================================================
+   Sprawl — shared boot choreography for non-homepage pages.
+
+   The homepage (index.html) has a richer, tree-specific boot
+   sequence inlined in its own <style>. Every other page loads
+   this file instead. It covers:
+
+     1. Topbar bottom rule sweeps in left→right.
+     2. Topbar title / nav groups fade in in a small left-to-right
+        stagger (same groups every page).
+     3. Any element tagged with `.boot-item` + inline `--boot-index`
+        fades in on cue. The sprawl-boot.js helper `sprawlBoot.stagger`
+        tags + indexes the direct children of a container in one call.
+
+   `body.boot` is present on <body> from page render; sprawl-boot.js
+   strips it after ~3.5s, so late-rendering content or later
+   re-renders (scroll-to-load-more, etc.) simply appear instantly.
+   ============================================================= */
+
+@keyframes boot-drawH  { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes boot-fadeIn { from { opacity: 0; }          to { opacity: 1; } }
+
+/* Replace the page's topbar border with a ::after overlay so the rule
+   can animate in. `!important` is needed because each page declares
+   `border-bottom: var(--rule) solid var(--fg)` on its own .topbar rule
+   inline, and specificity/order would otherwise beat this file. */
+.topbar { border-bottom: 0 !important; }
+.topbar::after {
+  content: "";
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  height: var(--rule, 1px);
+  background: var(--fg);
+}
+body.boot .topbar::after {
+  transform: scaleX(0);
+  transform-origin: left center;
+  animation: boot-drawH 0.5s ease-out forwards;
+}
+
+/* Topbar groups fade in roughly left-to-right. Each page shares the
+   same nav-group class names (nav-middle, nav-feed, …), so this
+   selector list works unmodified everywhere. */
+body.boot .topbar > .title,
+body.boot .topbar > .title-group,
+body.boot .topbar > .nav-middle,
+body.boot .topbar > .nav-feed,
+body.boot .topbar > .nav-marketplace,
+body.boot .topbar > .nav-right {
+  opacity: 0;
+  animation: boot-fadeIn 0.4s ease-out forwards;
+}
+body.boot .topbar > .title,
+body.boot .topbar > .title-group     { animation-delay: 0.2s;  }
+body.boot .topbar > .nav-middle      { animation-delay: 0.3s;  }
+body.boot .topbar > .nav-feed        { animation-delay: 0.35s; }
+body.boot .topbar > .nav-marketplace { animation-delay: 0.4s;  }
+body.boot .topbar > .nav-right       { animation-delay: 0.45s; }
+
+/* Per-item progressive reveal. Pages tag items with .boot-item +
+   --boot-index via the helper in sprawl-boot.js. Items fade in in
+   index order, 35ms apart, offset 0.3s so they follow the topbar. */
+body.boot .boot-item {
+  opacity: 0;
+  animation: boot-fadeIn 0.4s ease-out calc(var(--boot-index, 0) * 35ms + 0.3s) forwards;
+}
+
+/* "loading…" placeholders each page ships in its initial HTML are
+   suppressed while boot is active — the progressive reveal would
+   otherwise briefly flash the word before the real content lands.
+   If the fetch genuinely outlives the boot window, the rule stops
+   matching at 3.5s and the placeholder becomes visible, so the
+   reader still gets feedback on a slow network. */
+body.boot .boot-loading { opacity: 0; }

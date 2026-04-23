@@ -29,11 +29,17 @@
 
   // --- REST helpers ---------------------------------------------------
 
-  async function rest(path) {
+  async function rest(path, opts) {
     const url = API_URL.replace(/\/$/, "") + path;
-    const r = await fetch(url);
+    const r = await fetch(url, opts);
     if (r.status === 404) return null;
-    if (!r.ok) throw new Error(`api ${path}: ${r.status}`);
+    if (!r.ok) {
+      // Surface error detail when the server returned JSON — makes TTS /
+      // write failures legible without blowing up the caller.
+      let detail = "";
+      try { detail = " " + (await r.text()).slice(0, 300); } catch {}
+      throw new Error(`api ${path}: ${r.status}${detail}`);
+    }
     return await r.json();
   }
 
@@ -82,6 +88,14 @@
     // assigns the linkId after validation and returns it in the write
     // response; there's no need to pre-fetch an ID.
     collectPrepare:(k,id)      => rest(`/collect/prepare/${k}/${encodeURIComponent(id)}`),
+    // TTS. The server fetches the canonical text by (kind, id) so the
+    // browser never supplies raw text — the endpoint can't be used as an
+    // open ElevenLabs proxy. Response: {audio_url, alignment, plain_text, cached}.
+    tts: (kind, id, voiceId) => rest("/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(voiceId ? { kind, id, voice_id: voiceId } : { kind, id }),
+    }),
   };
 
   const SprawlGraph = {

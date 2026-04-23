@@ -91,9 +91,48 @@
   .entity-row .sub,  .arc-row .sub  { margin-top: 2px; color: var(--mute); letter-spacing: 0.04em; }
 
   .votes-line { color: var(--fg); overflow-wrap: anywhere; }
+
+  /* --- Own-profile affordances (wallet-gated) ------------------------
+     When the visitor's connected wallet matches the URL's addr, the body
+     gains `.own-profile`. That reveals LIST/UNLIST buttons in the
+     COLLECTED ITEMS section and a WITHDRAW row at the top of the page.
+     Buttons use the existing .ctl vocabulary (muted → fg on hover). */
+  .own-only { display: none; }
+  body.own-profile .own-only { display: inline; }
+
+  /* Guidance note shown above the sections on an own profile when the
+     viewer is either not registered as an author yet, or registered but
+     hasn't authored anything. Block-level (unlike the inline .own-only
+     affordances above) so it reads as its own paragraph. */
+  .profile-note {
+    display: none;
+    color: var(--mute);
+    margin: 0 0 24px 0;
+    letter-spacing: 0.04em;
+  }
+  body.own-profile .profile-note { display: block; }
+
+  /* Fallback "(no contributions yet)" line — useful for visitors looking
+     at someone else's empty profile, but noisy on an own empty profile
+     where the profile-note above is already covering it. */
+  body.own-profile .profile-empty { display: none; }
+
+  .row-actions { margin-top: 2px; color: var(--mute); letter-spacing: 0.04em; }
+  .row-actions .ctl { cursor: pointer; user-select: none; color: var(--mute); }
+  .row-actions .ctl:hover { color: var(--fg); text-decoration: underline; }
+  .row-actions .price { color: var(--fg); }
+
+  .withdraw-row { margin-bottom: 20px; letter-spacing: 0.04em; }
+  .withdraw-row .k { color: var(--mute); margin-right: 8px; }
+  .withdraw-row .v { color: var(--fg); }
+  .withdraw-row .ctl { cursor: pointer; user-select: none; color: var(--mute); margin-left: 12px; }
+  .withdraw-row .ctl:hover { color: var(--fg); text-decoration: underline; }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -113,13 +152,15 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <main>
-  <h2 id="name">loading…</h2>
+  <h2 id="name"><span class="boot-loading">loading…</span></h2>
   <div class="addr" id="addr"></div>
+  <div id="withdraw-slot"></div>
   <div class="counts" id="counts"></div>
   <div id="sections"></div>
 </main>
@@ -146,6 +187,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   const params = new URLSearchParams(location.search);
@@ -196,7 +242,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       SprawlAPI.arcsByCreator(addr, 500),
       gql(`query($addr: Bytes!) {
         owned: collectedAssets(first: 1000, where: { owner: $addr }, orderBy: collectedAt, orderDirection: desc) {
-          id kind nativeId collectedAt
+          id kind nativeId collectedAt listingPrice
           creator { id name }
         }
         createdSold: sales(first: 1000, where: { asset_: { creator: $addr }, firstSale: true }, orderBy: timestamp, orderDirection: desc) {
@@ -231,21 +277,40 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       return n ? n.toUpperCase() : shortAddr(a);
     }
 
-    if (!onchain) {
-      document.getElementById("name").textContent = "Unknown address.";
-      document.getElementById("addr").textContent = shortAddr(addr);
-      return;
+    // Unregistered addresses are valid profile targets — they can own
+    // collected assets even without a Citizen record. We just skip the
+    // "REGISTERED AT BLOCK" line and use a shortened address as the name.
+    // Registered names render uppercase (site convention); the short-hex
+    // fallback keeps its natural case so "0x1234…abcd" doesn't become
+    // "0X1234…ABCD".
+    const isRegistered = !!onchain;
+    const identityAddr = isRegistered ? onchain.id : addr;
+    const hasName      = isRegistered && onchain.name;
+    // Page title uses whatever we can display — full address for the
+    // unregistered case. The H2, though, is ONLY a name: when there's
+    // no registered username we leave it blank so the short-hex doesn't
+    // duplicate the full address line just below it.
+    document.title = "Sprawl — " + (hasName ? onchain.name : shortAddr(identityAddr));
+    const nameEl = document.getElementById("name");
+    if (hasName) {
+      nameEl.innerHTML =
+        escapeHtml(onchain.name.toUpperCase()) +
+        (onchain.isBanned ? ' <span class="banned-tag">| BANNED</span>' : "");
+    } else {
+      nameEl.remove();
     }
-
-    const display = onchain.name || shortAddr(onchain.id);
-    document.title = "Sprawl — " + display;
-    document.getElementById("name").innerHTML =
-      escapeHtml(display.toUpperCase()) +
-      (onchain.isBanned ? ' <span class="banned-tag">| BANNED</span>' : "");
-    const explorerHref = `https://sepolia.etherscan.io/address/${onchain.id}`;
+    const explorerHref = `https://sepolia.etherscan.io/address/${identityAddr}`;
     document.getElementById("addr").innerHTML =
-      `<div class="line"><a href="${explorerHref}" target="_blank" rel="noopener">${escapeHtml(onchain.id)}</a></div>` +
-      `<div class="line">REGISTERED AT BLOCK ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`;
+      // DISCONNECT sits inline with the address and is gated to the
+      // own-profile view. It clears the wallet state, sets a sticky
+      // "stay disconnected" flag so reloads don't auto-reconnect, and
+      // (best-effort) asks the wallet to revoke its permission.
+      `<div class="line"><a href="${explorerHref}" target="_blank" rel="noopener">${escapeHtml(identityAddr)}</a><span class="own-only"> | <a class="act-disconnect" href="#">DISCONNECT</a></span></div>` +
+      (isRegistered
+        ? `<div class="line">REGISTERED AT BLOCK ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`
+        // REGISTER link, also own-only. Click hand-off via the
+        // delegated listener further down.
+        : `<div class="line">NOT REGISTERED AS AN AUTHOUR<span class="own-only"> | <a class="act-register" href="#">REGISTER</a></span></div>`);
 
     const all      = (linksResp    && linksResp.items)    || [];
     const votes    = (votesResp    && votesResp.items)    || [];
@@ -364,14 +429,23 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 
     if (owned.length) {
       // Anything this wallet owns right now (first collection or later purchase).
+      // Each row carries data-* attributes for the action-slot renderer:
+      //   data-kind / data-native-id identify the asset on-chain
+      //   data-listing-wei tracks the current listing price (0 = unlisted)
+      // The .row-actions block is rendered empty and only fills in on
+      // .own-profile body (see CSS + the own-profile setup below). Action
+      // buttons dispatch sprawl:listed / sprawl:unlisted events, which
+      // this page listens for to swap LIST <-> UNLIST without reloading.
       const rows = owned.map(a => {
         const creatorAddr = a.creator && a.creator.id;
         const creatorLink = creatorAddr
           ? `<a href="author.html?addr=${encodeURIComponent(creatorAddr)}">${escapeHtml(displayName(creatorAddr))}</a>`
           : "—";
-        return `<div class="entity-row">
+        const listingWei = String(a.listingPrice || "0");
+        return `<div class="entity-row collected-row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}" data-listing-wei="${escapeHtml(listingWei)}">
           <div class="head"><a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a></div>
           <div class="sub">BY ${creatorLink}</div>
+          <div class="row-actions own-only"></div>
         </div>`;
       }).join("");
       sections.push(`<h3>COLLECTED ITEMS</h3>${rows}`);
@@ -396,8 +470,145 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       sections.push(`<h3>CREATED ITEMS SOLD</h3>${rows}`);
     }
 
-    document.getElementById("sections").innerHTML =
-      sections.length ? sections.join("") : '<div style="color: var(--mute);">(no contributions yet)</div>';
+    // Note for the own-user path: if they're not registered, or they
+    // are but haven't authored anything yet (written links / entities /
+    // arcs / had created items sold), drop a short orientation blurb
+    // above the sections. CSS gates it to .own-profile so visitors
+    // looking at the same page don't see it.
+    const hasAuthored = all.length || entities.length || arcs.length || createdSold.length;
+    const showNote = !isRegistered || !hasAuthored;
+    const noteHtml = showNote
+      ? `<div class="profile-note">NOTE: Collecting a Sprawl asset doesn't require you to be registered as an authour. Registering will give you access to voting and writing features. While you can vote and collect from this frontend, writing is only available via the agent kit (for now).</div>`
+      : "";
+    const emptyHtml = sections.length
+      ? ""
+      : '<div class="profile-empty" style="color: var(--mute);">(no contributions yet)</div>';
+    document.getElementById("sections").innerHTML = noteHtml + sections.join("") + emptyHtml;
+
+    // --------------------------------------------------------------
+    // Own-profile affordances: LIST / UNLIST buttons per collected
+    // item, plus the WITHDRAW row at the top.
+    //
+    // We wire everything now so the click handlers are live even if
+    // the wallet hasn't reported yet. The visual state is gated by
+    // body.own-profile (set/cleared by syncOwnProfile on every
+    // wallet event), so until the wallet matches, .own-only blocks
+    // stay hidden by CSS.
+    // --------------------------------------------------------------
+
+    function renderRowActions(rowEl) {
+      const slot = rowEl.querySelector(".row-actions");
+      if (!slot) return;
+      const wei = BigInt(rowEl.dataset.listingWei || "0");
+      if (wei === 0n) {
+        slot.innerHTML = `<a class="ctl act-list" href="#">LIST</a>`;
+      } else {
+        slot.innerHTML = `<span class="price">LISTED ${sprawlActions.formatEth(wei)}</span> · <a class="ctl act-unlist" href="#">UNLIST</a>`;
+      }
+    }
+    // Initial paint of every collected-row action slot.
+    document.querySelectorAll(".collected-row").forEach(renderRowActions);
+
+    // Click delegation for LIST / UNLIST. The modal in sprawl-actions
+    // takes over once a button is clicked.
+    document.getElementById("sections").addEventListener("click", (ev) => {
+      const row = ev.target.closest(".collected-row");
+      if (!row) return;
+      const kind     = (row.dataset.kind || "").toLowerCase();
+      const nativeId = row.dataset.nativeId;
+      if (ev.target.classList.contains("act-list")) {
+        ev.preventDefault();
+        sprawlActions.list(kind, nativeId);
+      } else if (ev.target.classList.contains("act-unlist")) {
+        ev.preventDefault();
+        sprawlActions.unlist(kind, nativeId);
+      }
+    });
+
+    // Delegated click handler for affordances inside #addr:
+    //   REGISTER   — unregistered own profile, opens the register modal.
+    //   DISCONNECT — any own profile, detaches the wallet and sets the
+    //                sticky flag so reloads stay disconnected.
+    document.getElementById("addr").addEventListener("click", (ev) => {
+      if (ev.target.classList.contains("act-register")) {
+        ev.preventDefault();
+        sprawlActions.register();
+      } else if (ev.target.classList.contains("act-disconnect")) {
+        ev.preventDefault();
+        sprawlWallet.disconnect();
+      }
+    });
+    window.addEventListener("sprawl:registered", () => {
+      // Give the subgraph a second to index the CitizenRegistered event
+      // before reloading, otherwise we'd race and re-render as still
+      // unregistered. 2s is a conservative margin at testnet scale.
+      setTimeout(() => location.reload(), 2000);
+    });
+
+    // Optimistic UI on successful list/unlist — update the row's
+    // data-listing-wei and re-render its action slot. The subgraph
+    // catches up within a few seconds, at which point a page reload
+    // reflects the same state.
+    function findRow(kind, nativeId) {
+      const rows = document.querySelectorAll(".collected-row");
+      for (const r of rows) {
+        if (r.dataset.kind.toLowerCase() === kind && String(r.dataset.nativeId) === String(nativeId)) return r;
+      }
+      return null;
+    }
+    window.addEventListener("sprawl:listed", (e) => {
+      const { kind, nativeId, priceWei } = e.detail || {};
+      const r = findRow(kind, nativeId);
+      if (r) { r.dataset.listingWei = String(priceWei || "0"); renderRowActions(r); }
+    });
+    window.addEventListener("sprawl:unlisted", (e) => {
+      const { kind, nativeId } = e.detail || {};
+      const r = findRow(kind, nativeId);
+      if (r) { r.dataset.listingWei = "0"; renderRowActions(r); }
+    });
+
+    // ----- WITHDRAW slot. Only populated when viewer === addr and the
+    //       contract reports a non-zero pendingWithdrawals. Runs on every
+    //       wallet change (connect, account switch, chain switch) so it
+    //       stays in sync.
+    const withdrawSlot = document.getElementById("withdraw-slot");
+    async function refreshWithdraw() {
+      withdrawSlot.innerHTML = "";
+      if (!sprawlWallet.isConnected()) return;
+      if (sprawlWallet.getAddress() !== addr) return;
+      if (!sprawlWallet.isOnSepolia()) return;
+      let pending;
+      try {
+        const read = sprawlWallet.getReadContract();
+        pending = await read.pendingWithdrawals(addr);
+      } catch { return; }
+      if (!pending || pending === 0n) return;
+      withdrawSlot.innerHTML = `<div class="withdraw-row">
+        <span class="k">PENDING WITHDRAWAL</span>
+        <span class="v">${sprawlActions.formatEth(pending)}</span>
+        <a class="ctl act-withdraw" href="#">WITHDRAW</a>
+      </div>`;
+      withdrawSlot.querySelector(".act-withdraw").addEventListener("click", (ev) => {
+        ev.preventDefault();
+        sprawlActions.withdraw();
+      });
+    }
+    window.addEventListener("sprawl:withdrew", () => { refreshWithdraw(); });
+
+    function syncOwnProfile(state) {
+      const isOwn = state.connected && state.address === addr;
+      document.body.classList.toggle("own-profile", isOwn);
+      refreshWithdraw();
+    }
+    // Initial + subscribe for live updates (account/chain change, etc.).
+    syncOwnProfile(sprawlWallet.getState());
+    sprawlWallet.on(syncOwnProfile);
+
+    // Stagger the page: main's top-level blocks first (name, addr, counts,
+    // sections) so the header area reveals as a unit, then the subsection
+    // headings + rows inside #sections for a second cascade within it.
+    sprawlBoot.stagger(document.querySelector("main"));
+    sprawlBoot.stagger(document.getElementById("sections"));
   } catch (e) {
     document.getElementById("name").textContent = "Could not load: " + e.message;
   }

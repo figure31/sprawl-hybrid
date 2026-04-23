@@ -75,8 +75,11 @@
   .author .addr { color: var(--mute); letter-spacing: 0.04em; }
   .author .meta { color: var(--mute); margin-top: 2px; letter-spacing: 0.04em; }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -96,12 +99,13 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <main>
-  <div id="list">loading…</div>
+  <div id="list"><span class="boot-loading">loading…</span></div>
 </main>
 
 <script>
@@ -126,6 +130,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   function escapeHtml(s) {
@@ -150,18 +159,20 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     // first paint on N citizen-stat fetches.
     citizens.sort((a, b) => Number(b.registeredAt || 0) - Number(a.registeredAt || 0));
 
-    document.getElementById("list").innerHTML = citizens.map(c => {
+    const listEl = document.getElementById("list");
+    listEl.innerHTML = citizens.map(c => {
       const collected = c.totalPurchases || 0;
       const sold      = c.totalSales     || 0;
       const collectLine = (collected || sold)
         ? `${collected} COLLECTED | ${sold} SOLD`
         : "";
-      return `<div class="author" data-addr="${escapeHtml(c.id)}" data-stats="pending">
+      return `<div class="author boot-item" data-addr="${escapeHtml(c.id)}" data-stats="pending">
         <a href="author.html?addr=${encodeURIComponent(c.id)}"><span class="name${c.isBanned ? " banned" : ""}">${escapeHtml(c.name ? c.name.toUpperCase() : shortAddr(c.id))}</span></a>
         <div class="meta stats-slot">…</div>
         ${collectLine ? `<div class="meta">${collectLine}</div>` : ""}
       </div>`;
     }).join("");
+    sprawlBoot.stagger(listEl);
 
     // Fetch each row's stats only when its entry enters the viewport. Bounded
     // to 3 in-flight requests at a time to respect the account's Lambda

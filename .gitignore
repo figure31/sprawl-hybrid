@@ -19,7 +19,10 @@ OPERATIONS.md
 EMERGENCY.md
 CONCEPT.md
 PLAN.md
+VISUAL.md
+visual.md
 README.md.dev
+NARRATION_IMPLEMENTATION.md
 
 # --- Kit local state ---
 kit/.env

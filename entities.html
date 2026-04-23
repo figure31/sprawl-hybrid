@@ -96,8 +96,11 @@
   .entity .desc { margin-top: 2px; }
   .entity .meta { color: var(--mute); margin-top: 4px; letter-spacing: 0.04em; }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -117,12 +120,13 @@
   <nav class="nav-right">
     <a href="about.html">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
 
 <main>
-  <div id="list">loading…</div>
+  <div id="list"><span class="boot-loading">loading…</span></div>
 </main>
 
 <script>
@@ -147,6 +151,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 })();
 </script>
 <script src="sprawl-data.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
 (async () => {
   function escapeHtml(s) {
@@ -203,6 +212,11 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const creatorHref = "author.html?addr=" + encodeURIComponent(e.creator);
         const creatorHtml = `<a href="${creatorHref}">${escapeHtml(creatorName)}</a>`;
         const collectedMeta = collectedByMarkup(e.entityId);
+        // COLLECT affordance only when the entity isn't already on-chain.
+        // Click handling is delegated on #list below.
+        const collectAction = !collectedMeta
+          ? `<div class="meta entity-actions"><a class="act-collect" href="#" data-entity-id="${escapeHtml(e.entityId)}">COLLECT</a></div>`
+          : "";
         // Mentions are deferred until the user clicks — fetching one call per
         // entity at page load doesn't scale. The placeholder's click handler
         // (bound below) replaces itself with the fetched list.
@@ -211,15 +225,32 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
           ${e.description ? `<div class="desc">${escapeHtml(e.description)}</div>` : ""}
           <div class="meta">BY ${creatorHtml}</div>
           ${collectedMeta ? `<div class="meta">${collectedMeta}</div>` : ""}
+          ${collectAction}
           <div class="meta mentions-row"><a class="mentions-toggle" href="#">MENTIONS: show</a></div>
         </div>`);
       }
     }
     document.getElementById("list").innerHTML = html.join("") || "(none yet)";
+    sprawlBoot.stagger(document.getElementById("list"));
 
-    // Lazy mentions: one click → one fetch → list replaces the placeholder.
-    // Keeps the first paint at one API call total (the entities list itself).
-    document.getElementById("list").addEventListener("click", async (ev) => {
+    const listEl = document.getElementById("list");
+
+    // Delegated click handler for both mentions (lazy-loaded) and the
+    // COLLECT button. The mentions branch keeps first paint cheap by
+    // deferring the per-entity fetch until the reader asks for it;
+    // the COLLECT branch hands off to sprawl-actions, which drives
+    // its own modal.
+    listEl.addEventListener("click", async (ev) => {
+      const collectBtn = ev.target.closest(".act-collect");
+      if (collectBtn) {
+        ev.preventDefault();
+        const id = collectBtn.dataset.entityId;
+        const row = collectBtn.closest(".entity");
+        const name = row ? (row.querySelector(".name") || {}).textContent : id;
+        sprawlActions.collect("entity", id, { authorName: name });
+        return;
+      }
+
       const toggle = ev.target.closest(".mentions-toggle");
       if (!toggle) return;
       ev.preventDefault();
@@ -237,6 +268,27 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       } catch (err) {
         row.textContent = "could not load mentions";
       }
+    });
+
+    // Optimistic UI after a successful entity collect. Replaces the row's
+    // COLLECT slot with a COLLECTED BY … line, using whichever display
+    // name we can resolve (citizens name map, else shortened address).
+    window.addEventListener("sprawl:collected", (ev) => {
+      const d = (ev && ev.detail) || {};
+      if (d.kind !== "entity") return;
+      const row = listEl.querySelector(`.entity[data-entity-id="${CSS.escape(d.nativeId)}"]`);
+      if (!row) return;
+      const actionEl = row.querySelector(".entity-actions");
+      if (actionEl) actionEl.remove();
+      const ownerAddr = (d.owner || "").toLowerCase();
+      const ownerName = nameByAddr[ownerAddr];
+      const label = ownerName ? ownerName.toUpperCase() : ownerAddr.slice(0, 6) + "…" + ownerAddr.slice(-4);
+      const href  = "author.html?addr=" + encodeURIComponent(ownerAddr);
+      const meta  = document.createElement("div");
+      meta.className = "meta";
+      meta.innerHTML = `COLLECTED BY <a href="${href}">${escapeHtml(label)}</a>`;
+      const mentions = row.querySelector(".mentions-row");
+      row.insertBefore(meta, mentions);
     });
   } catch (e) {
     document.getElementById("list").textContent = "Could not load entities: " + e.message;

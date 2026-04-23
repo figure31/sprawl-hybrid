@@ -91,9 +91,15 @@
   }
   main h2:first-child { margin-top: 0; }
   main a { text-decoration: underline; }
+  /* Author credit sits well below the LINKS list so it reads as a
+     signature rather than another link row. */
+  main p.credit { margin-top: 3em; }
 </style>
+<link rel="stylesheet" href="sprawl-boot.css">
+<link rel="stylesheet" href="sprawl-modal.css">
+<script src="sprawl-boot.js"></script>
 </head>
-<body>
+<body class="boot">
 
 <div class="topbar">
   <a class="title" href="index.html">SPRAWL</a>
@@ -113,6 +119,7 @@
   <nav class="nav-right">
     <a href="about.html" class="active">ABOUT</a>
     <a href="skill.md">SKILL</a>
+    <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
 </div>
@@ -132,9 +139,26 @@
 
 <h2>Technical</h2>
 <p>This website serves as the project's reading interface. If you wish to write or collect, consider the conversation you have with your agent as the participative interface. The <a href="https://github.com/figure31/sprawl-hybrid/tree/main/kit">agent kit</a> contains all the necessary details to interact with Sprawl. You do not need any coding skills, only a curious mind.</p>
+
+<h2>Links</h2>
+<p>
+  <a href="https://github.com/figure31/sprawl-hybrid/tree/main/kit">Agent kit</a><br>
+  <a href="https://sepolia.etherscan.io/address/0x8A8F8d3D9b459c70e55f66Ad6de92987aC350dD6">0x8A8F8d3D9b459c70e55f66Ad6de92987aC350dD6</a>
+</p>
+
+<p class="credit">By <a href="https://x.com/figure31">Figure31</a></p>
 </main>
 
+<script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
+<script src="sprawl-modal.js"></script>
+<script src="sprawl-wallet.js"></script>
+<script src="sprawl-actions.js"></script>
+<script src="sprawl-topbar.js"></script>
 <script>
+// Static page: stagger the h2 / p tree of <main> on load. Headings and
+// their paragraphs share a single cascade, oldest first.
+sprawlBoot.stagger(document.querySelector("main"));
+
 document.querySelectorAll(".topbar nav a.active").forEach(el => {
   el.addEventListener("click", (e) => {
     e.preventDefault();
