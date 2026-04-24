@@ -665,11 +665,6 @@
     .panel::after { display: none; }
     #tree-panel   { border-bottom: var(--rule) solid var(--fg); }
 
-    /* Tighter meta line on mobile: block number drops out; the leading
-       "| " is inside the span so removing it doesn't leave a stranded
-       separator between #id and author. */
-    .meta-block { display: none; }
-
     /* Keep the meta line on a single row even when it overflows the
        column width — the reader scrolls horizontally inside the line
        instead of seeing it wrap. Scrollbar hidden for aesthetics (the
@@ -1606,11 +1601,7 @@
       const playActionHtml = !link.cleared
         ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">LISTEN</a>`
         : "";
-      // blockNumber is wrapped so we can hide it on narrow viewports —
-      // the leading "| " is inside the span, so removing it doesn't leave
-      // a dangling separator on mobile.
-      const blockHtml = `<span class="meta-block"> | ${link.blockNumber}</span>`;
-      const meta = `#${link.id}${blockHtml} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
+      const meta = `#${link.id} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
       const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
       const selected = link.id === id ? " selected" : "";
       // --block-index feeds the boot-stagger (see body.boot rules in CSS).
