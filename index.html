@@ -115,6 +115,13 @@
   .topbar .nav-middle { }
   .topbar .nav-right  { }
 
+  /* Desktop: the wrapper is invisible to layout. Its three children are
+     absolute-positioned relative to .panel exactly as they were before
+     the wrapper existed. `display: contents` is well-supported in all
+     modern engines; the only tradeoff is it drops the element from the
+     accessibility tree, which is fine for a semantically empty div. */
+  .panel-header { display: contents; }
+
   /* --- Mobile hamburger + dropdown nav ----------------------------------
      On desktop these stay out of the way. On narrow viewports we hide the
      scattered desktop nav groups and surface a single hamburger that
@@ -686,6 +693,42 @@
     #toggle-expand,
     #toggle-tree-expand { display: none; }
     #text-panel .panel-controls .ctl-sep { display: none; }
+
+    /* Mobile: the three control groups ride a 3-column grid inside the
+       panel header so the center group lands midway between the left
+       and right groups instead of at the viewport midpoint (which
+       looked off-balance when the left stats were wider than HIDE INFO).
+       grid-template-columns: auto 1fr auto makes col 2 the literal gap
+       between col 1 and col 3, and justify-self: center on the center
+       element centers it inside that gap. */
+    .panel-header {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--controls-h);
+      padding: 0 var(--pad);
+      z-index: 2;
+      background: var(--bg);
+      column-gap: 8px;
+    }
+    .panel-header > .panel-controls {
+      position: static;
+      top: auto;
+      left: auto;
+      right: auto;
+      transform: none;
+      padding: 0;
+      background: transparent;
+    }
+    .panel-header > .panel-controls-left   { justify-self: start;  }
+    .panel-header > .panel-controls-center { justify-self: center; }
+    .panel-header > .panel-controls:not(.panel-controls-left):not(.panel-controls-center) {
+      justify-self: end;
+    }
   }</style>
 <link rel="stylesheet" href="sprawl-modal.css">
 </head>
@@ -741,17 +784,26 @@
 
 <div class="layout">
   <section class="panel" id="text-panel">
-    <div class="panel-controls panel-controls-left" id="text-path-stats"></div>
-    <div class="panel-controls panel-controls-center">
-      <a id="tts-global" class="ctl" style="display:none" title="play / pause narration">PLAY</a>
-      <!-- Sibling of #tts-global so CSS can show it only when the button
-           is in its .is-pause state (i.e., audio actively playing). -->
-      <span id="tts-bars" aria-hidden="true"><span></span><span></span><span></span></span>
-    </div>
-    <div class="panel-controls">
-      <a id="toggle-meta"   class="ctl" title="show / hide link info">HIDE INFO</a>
-      <span class="ctl-sep">/</span>
-      <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
+    <!-- .panel-header wraps the three controls groups purely so we can
+         lay them out as a 3-column grid (auto / 1fr / auto) on mobile,
+         which places the center element in the actual gap between the
+         left stats and the right HIDE INFO instead of at the viewport
+         midpoint. On desktop the wrapper is display: contents — fully
+         invisible to layout, so the children still absolute-position
+         themselves relative to .panel exactly as before. -->
+    <div class="panel-header">
+      <div class="panel-controls panel-controls-left" id="text-path-stats"></div>
+      <div class="panel-controls panel-controls-center">
+        <a id="tts-global" class="ctl" style="display:none" title="play / pause narration">PLAY</a>
+        <!-- Sibling of #tts-global so CSS can show it only when the button
+             is in its .is-pause state (i.e., audio actively playing). -->
+        <span id="tts-bars" aria-hidden="true"><span></span><span></span><span></span></span>
+      </div>
+      <div class="panel-controls">
+        <a id="toggle-meta"   class="ctl" title="show / hide link info">HIDE INFO</a>
+        <span class="ctl-sep">/</span>
+        <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
+      </div>
     </div>
     <div class="panel-scroll">
       <div id="text-content" class="empty"><span class="boot-loading">loading…</span></div>
@@ -759,14 +811,16 @@
   </section>
 
   <section class="panel" id="tree-panel">
-    <div class="panel-controls panel-controls-left">
-      <a id="reset-view"  class="ctl" title="reset view">RESET</a>
-      <span class="ctl-sep">/</span>
-      <a id="random-link" class="ctl" title="jump to a random link">RANDOM</a>
-    </div>
-    <div class="panel-controls panel-controls-center" id="tree-node-info"></div>
-    <div class="panel-controls">
-      <a id="toggle-tree-expand" class="ctl" title="toggle tree fullscreen">EXPAND</a>
+    <div class="panel-header">
+      <div class="panel-controls panel-controls-left">
+        <a id="reset-view"  class="ctl" title="reset view">RESET</a>
+        <span class="ctl-sep">/</span>
+        <a id="random-link" class="ctl" title="jump to a random link">RANDOM</a>
+      </div>
+      <div class="panel-controls panel-controls-center" id="tree-node-info"></div>
+      <div class="panel-controls">
+        <a id="toggle-tree-expand" class="ctl" title="toggle tree fullscreen">EXPAND</a>
+      </div>
     </div>
     <div id="tree-wrap">
       <svg id="tree-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMin meet"></svg>
@@ -1550,7 +1604,7 @@
       // Genesis (link 0) IS narratable — unlike COLLECT, which is gated
       // by the contract's self-collection rule, PLAY just reads text.
       const playActionHtml = !link.cleared
-        ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">PLAY</a>`
+        ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">LISTEN</a>`
         : "";
       // blockNumber is wrapped so we can hide it on narrow viewports —
       // the leading "| " is inside the span, so removing it doesn't leave

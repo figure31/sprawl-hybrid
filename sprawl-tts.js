@@ -62,7 +62,11 @@
   }
 
   function resetAllPlayLabels() {
-    document.querySelectorAll(".act-play").forEach(el => setPlayLabel(el, "PLAY"));
+    // Per-link buttons read LISTEN in their idle state (the top-bar global
+    // button keeps the briefer PLAY/PAUSE pairing). setPlayLabel toggles
+    // the .is-pause class only when the label === "PAUSE", so any other
+    // label — LISTEN here — clears the class cleanly.
+    document.querySelectorAll(".act-play").forEach(el => setPlayLabel(el, "LISTEN"));
   }
 
   function showGlobal(label) {
@@ -336,7 +340,9 @@
     if (state.rafId) cancelAnimationFrame(state.rafId);
     state.rafId = null;
     const cur = state.queue[state.idx];
-    if (cur) setLinkPlayLabel(cur, "PLAY");
+    // Per-link button uses LISTEN in its idle/paused state; the global
+    // panel-centre button sticks to the shorter PLAY.
+    if (cur) setLinkPlayLabel(cur, "LISTEN");
     showGlobal("PLAY");
   }
 
