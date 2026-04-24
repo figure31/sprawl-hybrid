@@ -57,7 +57,7 @@
   .topbar > .nav-marketplace { left: 75%; }
   .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav a.active { text-decoration: underline; }
+  .topbar nav a.active { text-decoration: none; }
 
   main {
     max-width: 820px; margin: 0 auto;
@@ -73,24 +73,86 @@
     font-size: var(--font-size); font-weight: normal;
     letter-spacing: 0.08em;
   }
-  .addr { margin-bottom: 28px; letter-spacing: 0.04em; }
+  /* .addr is an accompanying-info block — it carries the etherscan
+     link + "REGISTERED AT BLOCK N" / own-profile action buttons.
+     The default --mute covers lines that include clickables; any line
+     that's purely non-clickable content gets .info-line and drops
+     back to --fg. */
+  .addr { margin-bottom: 28px; letter-spacing: 0.04em; color: var(--mute); }
   .addr .line { }
+  .addr .info-line { color: var(--fg); }
+  /* Chip-style hover on the etherscan address link — same affordance
+     as the topbar nav buttons (SPRAWL, FEED, etc.). */
+  .addr a:hover {
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
   .banned-tag { color: var(--fg); }
 
   .counts { margin-bottom: 20px; }
   .counts .row { display: flex; gap: 8px; }
   .counts .k   { letter-spacing: 0.04em; }
 
-  .link-row { margin-bottom: 14px; }
-  .link-row .head { color: var(--mute); letter-spacing: 0.04em; }
-  .link-row .body { margin-top: 2px; overflow-wrap: anywhere; }
+  /* Full-bleed row + hover invert. Each row sets its own base color so
+     non-anchor descendants inherit cleanly.
+     Inside a row, two flavours of line:
+       – content text (link body, entity/arc title + description):
+         inherits the row colour — --fg at rest, --bg on hover.
+       – meta-style lines with clickables on them (link head with #id,
+         entity/arc sub with "ANCHORED AT #N | COLLECTED BY NAME"):
+         always --mute, same as the homepage meta convention.
+     Clickables themselves stay --mute in both modes; a sub-hovered
+     clickable flips to --bg. */
+  body { overflow-x: clip; }
+  .link-row, .entity-row, .arc-row {
+    margin: 0 calc(50% - 50vw);
+    padding: 0.75em calc(50vw - 50%);
+    color: var(--fg);
+  }
+  .link-row,
+  .entity-row[data-kind="Link"] { cursor: pointer; }
+  /* Content titles / descriptions — inherit row colour. */
+  .entity-row .head,
+  .arc-row .head { letter-spacing: 0.04em; }
+  .link-row .body,
+  .entity-row .desc,
+  .arc-row .desc { margin-top: 2px; overflow-wrap: anywhere; }
+  /* Meta-style lines — always --mute regardless of cell hover state. */
+  .link-row .head,
+  .entity-row .sub,
+  .arc-row .sub {
+    letter-spacing: 0.04em;
+    color: var(--mute);
+  }
+  .entity-row .sub,
+  .arc-row .sub  { margin-top: 2px; }
 
-  .entity-row, .arc-row { margin-bottom: 14px; }
-  .entity-row .head, .arc-row .head { letter-spacing: 0.04em; }
-  .entity-row .desc, .arc-row .desc { margin-top: 2px; color: var(--fg); }
-  .entity-row .sub,  .arc-row .sub  { margin-top: 2px; color: var(--mute); letter-spacing: 0.04em; }
+  .link-row a,
+  .entity-row a,
+  .arc-row a { color: var(--mute); }
 
-  .votes-line { color: var(--fg); overflow-wrap: anywhere; }
+  .link-row:hover,
+  .entity-row:hover,
+  .arc-row:hover {
+    background: var(--hl);
+    color: var(--bg);
+  }
+  .link-row:hover a:hover,
+  .entity-row:hover a:hover,
+  .arc-row:hover a:hover { color: var(--bg); }
+
+  /* Votes line is a meta-style line — whole line --mute since it's
+     nothing but clickables + separators. */
+  .votes-line { color: var(--mute); overflow-wrap: anywhere; }
+  /* Same chip-style hover on each #link in the votes list. */
+  .votes-line a:hover {
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
 
   /* --- Own-profile affordances (wallet-gated) ------------------------
      When the visitor's connected wallet matches the URL's addr, the body
@@ -106,7 +168,7 @@
      affordances above) so it reads as its own paragraph. */
   .profile-note {
     display: none;
-    color: var(--mute);
+    color: var(--fg);
     margin: 0 0 24px 0;
     letter-spacing: 0.04em;
   }
@@ -119,14 +181,31 @@
 
   .row-actions { margin-top: 2px; color: var(--mute); letter-spacing: 0.04em; }
   .row-actions .ctl { cursor: pointer; user-select: none; color: var(--mute); }
-  .row-actions .ctl:hover { color: var(--fg); text-decoration: underline; }
+  /* On sub-hover of a LIST / UNLIST button inside a cell-hovered
+     collected-row, flip that button to --bg (no chip — the parent
+     cell is already --hl). Remove the default underline. */
+  .entity-row:hover .row-actions .ctl:hover {
+    text-decoration: none;
+    color: var(--bg);
+  }
   .row-actions .price { color: var(--fg); }
+  /* When the collected-row is cell-hovered, the row-actions line and
+     its inline price flip to --bg along with the rest of the cell
+     content. LIST / UNLIST buttons stay --mute until sub-hovered. */
+  .entity-row:hover .row-actions,
+  .entity-row:hover .row-actions .price { color: var(--bg); }
 
   .withdraw-row { margin-bottom: 20px; letter-spacing: 0.04em; }
   .withdraw-row .k { color: var(--mute); margin-right: 8px; }
   .withdraw-row .v { color: var(--fg); }
   .withdraw-row .ctl { cursor: pointer; user-select: none; color: var(--mute); margin-left: 12px; }
-  .withdraw-row .ctl:hover { color: var(--fg); text-decoration: underline; }
+  .withdraw-row .ctl:hover {
+    text-decoration: none;
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
 </style>
 <link rel="stylesheet" href="sprawl-boot.css">
 <link rel="stylesheet" href="sprawl-modal.css">
@@ -312,7 +391,9 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       // (best-effort) asks the wallet to revoke its permission.
       `<div class="line"><a href="${explorerHref}" target="_blank" rel="noopener">${escapeHtml(identityAddr)}</a><span class="own-only"> | <a class="act-disconnect" href="#">DISCONNECT</a></span></div>` +
       (isRegistered
-        ? `<div class="line">REGISTERED AT BLOCK ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`
+        // .info-line has no clickables on it, so it reads in --fg (not
+        // the --mute the rest of .addr uses).
+        ? `<div class="line info-line">REGISTERED AT BLOCK ${escapeHtml(String(onchain.registeredAtBlock || onchain.registeredAt))}</div>`
         // REGISTER link, also own-only. Click hand-off via the
         // delegated listener further down.
         : `<div class="line">NOT REGISTERED AS AN AUTHOUR<span class="own-only"> | <a class="act-register" href="#">REGISTER</a></span></div>`);
@@ -361,7 +442,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const body = l.cleared ? "[cleared]" : snippet(l.text, 140);
         const voteCount = l.voteCount || 0;
         const displayId = l.linkId.length <= 8 ? l.linkId : l.linkId.slice(0,12) + "…";
-        return `<div class="link-row">
+        return `<div class="link-row" data-link-id="${escapeHtml(l.linkId)}">
           <div class="head">
             <a href="index.html#link-${encodeURIComponent(l.linkId)}">#${escapeHtml(displayId)}</a>
             | +${escapeHtml(String(voteCount))}${tag}${collectedBy("Link", l.linkId)}
@@ -374,12 +455,19 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 
     if (entities.length) {
       const rows = entities.map(e => {
-        const desc = e.description ? snippet(e.description, 140) : "";
+        // Full description — no snippet truncation. Entities aren't
+        // deep-linkable on entities.html, so this page is the only
+        // place the reader can read them in context.
+        const desc = e.description || "";
+        // Sub line is now just the collected-by stamp (when present).
+        // Entity type (CHARACTER, PLACE, etc.) is omitted; the entity
+        // id already reads as the identifier.
         const collectedSub = collectedBy("Entity", e.entityId);
+        const subText = collectedSub.replace(/^\s*\|\s*/, "");
         return `<div class="entity-row">
           <div class="head">[${escapeHtml(e.entityId)}] ${escapeHtml(e.name || "")}</div>
           ${desc ? `<div class="desc">${escapeHtml(desc)}</div>` : ""}
-          <div class="sub">${escapeHtml((e.entityType || "").toUpperCase())}${collectedSub}</div>
+          ${subText ? `<div class="sub">${subText}</div>` : ""}
         </div>`;
       }).join("");
       sections.push(`<h3>ENTITIES</h3>${rows}`);
@@ -387,7 +475,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
 
     if (arcs.length) {
       const rows = arcs.map(a => {
-        const desc = a.description ? snippet(a.description, 140) : "";
+        const desc = a.description || "";  // full description, no truncation
         const anchor = a.anchorLinkId != null ? String(a.anchorLinkId) : "";
         const collectedSub = collectedBy("Arc", a.arcId);
         const subParts = [];
@@ -410,11 +498,12 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     }
 
     // Content-native labels: links show as #id, entities as [id], arcs as {id}.
-    // Shared by both the COLLECTED ITEMS and CREATED ITEMS SOLD sections below.
+    // Shared by both the COLLECTED ITEMS and CREATED ITEMS SOLD sections.
+    // Only Link kinds render as anchors — entities.html and arcs.html
+    // aren't deep-linkable per-item, so showing their labels as plain
+    // text (not --mute, not clickable) better matches the reality.
     function assetHref(kind, nativeId) {
-      if (kind === "Link")   return `index.html#link-${encodeURIComponent(nativeId)}`;
-      if (kind === "Entity") return `entities.html`;
-      if (kind === "Arc")    return `arcs.html`;
+      if (kind === "Link") return `index.html#link-${encodeURIComponent(nativeId)}`;
       return "#";
     }
     function assetLabel(kind, nativeId) {
@@ -422,6 +511,91 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       if (kind === "Entity") return `[${escapeHtml(nativeId)}]`;
       if (kind === "Arc")    return `{${escapeHtml(nativeId)}}`;
       return escapeHtml(String(nativeId));
+    }
+    function assetMarkup(kind, nativeId) {
+      const label = assetLabel(kind, nativeId);
+      if (kind === "Link") return `<a href="${assetHref(kind, nativeId)}">${label}</a>`;
+      if (kind === "Entity") {
+        const name = entityName(nativeId);
+        return name ? `${label} ${escapeHtml(name)}` : label;
+      }
+      return label;
+    }
+    // Content lookup: build maps from this author's own authored
+    // content (links / entities / arcs). The COLLECTED ITEMS and
+    // CREATED ITEMS SOLD rows read off these maps to show a preview
+    // (link snippet / entity name + desc / arc desc) alongside the
+    // bare #id / [id] / {id}.
+    const linkTextById = new Map();
+    for (const l of all) {
+      if (l.linkId && l.text && !l.cleared) linkTextById.set(String(l.linkId), l.text);
+    }
+    const entityById = new Map();
+    for (const e of entities) {
+      if (e.entityId && !e.cleared) entityById.set(e.entityId, { name: e.name || "", description: e.description || "" });
+    }
+    const arcById = new Map();
+    for (const a of arcs) {
+      if (a.arcId && !a.cleared) arcById.set(a.arcId, { description: a.description || "" });
+    }
+
+    // Collected items may reference content created by OTHER authors,
+    // which isn't in the per-author lists above. Fetch each missing
+    // item individually, bounded to 3 concurrent calls per kind to
+    // respect the Lambda concurrency cap.
+    const missingLinkIds = owned
+      .filter(a => a.kind === "Link")
+      .map(a => String(a.nativeId))
+      .filter(id => !linkTextById.has(id));
+    const missingEntityIds = owned
+      .filter(a => a.kind === "Entity")
+      .map(a => String(a.nativeId))
+      .filter(id => !entityById.has(id));
+    const missingArcIds = owned
+      .filter(a => a.kind === "Arc")
+      .map(a => String(a.nativeId))
+      .filter(id => !arcById.has(id));
+    if (typeof mapLimit === "function") {
+      await Promise.all([
+        missingLinkIds.length ? mapLimit(missingLinkIds, 3, async (id) => {
+          try {
+            const l = await SprawlAPI.link(id);
+            if (l && l.text && !l.cleared) linkTextById.set(id, l.text);
+          } catch {}
+        }) : null,
+        missingEntityIds.length ? mapLimit(missingEntityIds, 3, async (id) => {
+          try {
+            const e = await SprawlAPI.entity(id);
+            if (e && !e.cleared) entityById.set(id, { name: e.name || "", description: e.description || "" });
+          } catch {}
+        }) : null,
+        missingArcIds.length ? mapLimit(missingArcIds, 3, async (id) => {
+          try {
+            const a = await SprawlAPI.arc(id);
+            if (a && !a.cleared) arcById.set(id, { description: a.description || "" });
+          } catch {}
+        }) : null,
+      ]);
+    }
+
+    function entityName(nativeId) {
+      const e = entityById.get(String(nativeId));
+      return e ? e.name : "";
+    }
+    function contentSnippet(kind, nativeId) {
+      if (kind === "Link") {
+        const t = linkTextById.get(String(nativeId));
+        return t ? snippet(t, 140) : "";
+      }
+      if (kind === "Entity") {
+        const e = entityById.get(String(nativeId));
+        return e && e.description ? snippet(e.description, 140) : "";
+      }
+      if (kind === "Arc") {
+        const a = arcById.get(String(nativeId));
+        return a && a.description ? snippet(a.description, 140) : "";
+      }
+      return "";
     }
     function formatEth(weiStr) {
       const wei = BigInt(weiStr || "0");
@@ -447,8 +621,10 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
           ? `<a href="author.html?addr=${encodeURIComponent(creatorAddr)}">${escapeHtml(displayName(creatorAddr))}</a>`
           : "—";
         const listingWei = String(a.listingPrice || "0");
+        const body = contentSnippet(a.kind, a.nativeId);
         return `<div class="entity-row collected-row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}" data-listing-wei="${escapeHtml(listingWei)}">
-          <div class="head"><a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a></div>
+          <div class="head">${assetMarkup(a.kind, a.nativeId)}</div>
+          ${body ? `<div class="desc">${escapeHtml(body)}</div>` : ""}
           <div class="sub">BY ${creatorLink}</div>
           <div class="row-actions own-only"></div>
         </div>`;
@@ -467,8 +643,10 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
         const buyerLink = buyerAddr
           ? `<a href="author.html?addr=${encodeURIComponent(buyerAddr)}">${escapeHtml(displayName(buyerAddr))}</a>`
           : "—";
-        return `<div class="entity-row">
-          <div class="head"><a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a> <span>${formatEth(s.price)}</span></div>
+        const body = contentSnippet(a.kind, a.nativeId);
+        return `<div class="entity-row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
+          <div class="head">${assetMarkup(a.kind, a.nativeId)} <span>${formatEth(s.price)}</span></div>
+          ${body ? `<div class="desc">${escapeHtml(body)}</div>` : ""}
           <div class="sub">COLLECTED BY ${buyerLink}</div>
         </div>`;
       }).join("");
@@ -527,6 +705,26 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       } else if (ev.target.classList.contains("act-unlist")) {
         ev.preventDefault();
         sprawlActions.unlist(kind, nativeId);
+      }
+    });
+
+    // Click anywhere on a Link-kind row (either a .link-row in the
+    // top LINKS section, or an .entity-row with data-kind="Link" in
+    // COLLECTED ITEMS / CREATED ITEMS SOLD) to navigate to that link
+    // on the homepage. Inner anchors handle their own clicks, and
+    // clicks inside .row-actions (LIST / UNLIST) defer to the action
+    // handler above.
+    document.getElementById("sections").addEventListener("click", (ev) => {
+      if (ev.target.closest("a")) return;
+      if (ev.target.closest(".row-actions")) return;
+      const linkRow = ev.target.closest(".link-row");
+      if (linkRow && linkRow.dataset.linkId) {
+        location.href = "index.html#link-" + encodeURIComponent(linkRow.dataset.linkId);
+        return;
+      }
+      const assetRow = ev.target.closest(".entity-row");
+      if (assetRow && assetRow.dataset.kind === "Link" && assetRow.dataset.nativeId) {
+        location.href = "index.html#link-" + encodeURIComponent(assetRow.dataset.nativeId);
       }
     });
 

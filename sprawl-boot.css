@@ -5,17 +5,42 @@
    sequence inlined in its own <style>. Every other page loads
    this file instead. It covers:
 
-     1. Topbar bottom rule sweeps in left→right.
-     2. Topbar title / nav groups fade in in a small left-to-right
+     1. Site-wide colour palette (kept in sync with the homepage's
+        inline :root / html.dark). Each page has its own :root inline
+        but this file loads AFTER those <style> blocks, so these
+        declarations override and the palette stays centralised.
+     2. Topbar bottom rule sweeps in left→right.
+     3. Topbar title / nav groups fade in in a small left-to-right
         stagger (same groups every page).
-     3. Any element tagged with `.boot-item` + inline `--boot-index`
+     4. Any element tagged with `.boot-item` + inline `--boot-index`
         fades in on cue. The sprawl-boot.js helper `sprawlBoot.stagger`
         tags + indexes the direct children of a container in one call.
+     5. Chip-style hover effect shared by topbar nav + .ctl buttons.
 
    `body.boot` is present on <body> from page render; sprawl-boot.js
    strips it after ~3.5s, so late-rendering content or later
    re-renders (scroll-to-load-more, etc.) simply appear instantly.
    ============================================================= */
+
+/* --- Colour palette ------------------------------------------------ */
+
+:root {
+  --fg:   #171718;       /* primary text + structural lines */
+  --bg:   #ececec;       /* page background */
+  --mute: #c31a1a;       /* secondary text + non-active tree elements */
+  --hl:   #202020;       /* highlighted / active — hover chips, selected cells */
+  --tr:   #343535;       /* tree's non-active stroke */
+  --sel-bg: rgba(0, 0, 0, 0.06);   /* hover tint on non-selected cells */
+}
+
+html.dark {
+  --fg:   #eaeaea;
+  --bg:   #171717;
+  --mute: #c22d2d;
+  --hl:   #b8b8b8;
+  --tr:   #b4b4b4;
+  --sel-bg: rgba(255, 255, 255, 0.12);
+}
 
 @keyframes boot-drawH  { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 @keyframes boot-fadeIn { from { opacity: 0; }          to { opacity: 1; } }
@@ -72,6 +97,38 @@ body.boot .boot-item {
    matching at 3.5s and the placeholder becomes visible, so the
    reader still gets feedback on a slow network. */
 body.boot .boot-loading { opacity: 0; }
+
+/* --- Topbar nav + .ctl chip-hover ---------------------------------------
+   Topbar labels (SPRAWL, FEED, AUTHORS, ENTITIES, ARCS, MARKETPLACE,
+   ABOUT, SKILL, CONNECT, DARK) default to --mute. On hover they lift
+   to a solid --hl background with --bg text — the "chip" effect the
+   homepage uses. Padding + equal negative margin keep neighbouring
+   items from shifting when the chip appears. The default a:hover
+   underline still applies, so destination links read as both chip
+   AND link.
+   .ctl (HIDE INFO, EXPAND, RESET, RANDOM, etc.) uses the same chip
+   treatment without the underline — they're actions, not links. */
+/* SPRAWL title sits quieter in --mute; every other nav label (FEED,
+   AUTHORS, ENTITIES, ARCS, MARKETPLACE, ABOUT, SKILL, CONNECT, DARK)
+   reads in --fg so the navigation itself feels part of the content. */
+.topbar .title { color: var(--mute); }
+.topbar nav a  { color: var(--fg); }
+.topbar .title:hover,
+.topbar nav a:hover {
+  background: var(--hl);
+  color: var(--bg);
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
+
+.ctl { cursor: pointer; user-select: none; color: var(--mute); }
+.ctl:hover {
+  text-decoration: none;
+  background: var(--hl);
+  color: var(--bg);
+  padding: 2px 6px;
+  margin: -2px -6px;
+}
 
 /* =============================================================
    Mobile hamburger + dropdown nav.

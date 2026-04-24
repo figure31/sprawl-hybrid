@@ -20,10 +20,21 @@
   }
 
   :root {
-    --fg: #000;
-    --bg: #fff;
-    --mute: #888;          /* neutral grey — same in both themes */
-    --sel-bg: rgba(0, 0, 0, 0.05);   /* subtle tint on the active link-block */
+    --fg:   #171718;       /* near-black text + structural lines */
+    --bg:   #ececec;       /* page background */
+    --mute: #c31a1a;       /* secondary text + non-active tree elements */
+    /* --hl is the single "highlighted / active" colour — text cells on
+       hover/select fill with it, links/buttons lift to it on hover, and
+       the selected tree node + in-path strokes all use it. Defaults to
+       --fg; change only this line to test a different accent. */
+    --hl:   #202020;
+    /* --tr is the tree's "non-active" colour — off-path nodes, edges,
+       and recap-rings. Defaults to --mute; override separately to
+       experiment with a different tree hue without changing the rest
+       of the muted text on the page. */
+    --tr:   #343535;
+    /* Hover tint on non-selected cells (lighter than --hl). */
+    --sel-bg: rgba(0, 0, 0, 0.06);
     --rule: 1px;
     --pad: 12px;
     --topbar-h: 44px;
@@ -32,12 +43,16 @@
     --line-height: 1.5;
   }
 
-  /* Dark theme — swap foreground and background. Everything else pulls from
-     these CSS variables so the whole UI inverts in one step. */
+  /* Dark theme — same variable set as :root above, each one tuneable
+     independently for dark mode. Edit any line to adjust the dark
+     palette without touching the light one. */
   html.dark {
-    --fg: #fff;
-    --bg: #000;
-    --sel-bg: rgba(255, 255, 255, 0.12);   /* needs more lift than the light-mode tint to read as "highlighted" on black */
+    --fg:   #eaeaea;                          /* primary text + structural lines */
+    --bg:   #171717;                          /* page background */
+    --mute: #c22d2d;                          /* secondary text + non-active tree */
+    --hl:   #a2a2a2;                          /* highlighted / active colour */
+    --tr:   #b4b4b4;                          /* tree's non-active stroke */
+    --sel-bg: rgba(255, 255, 255, 0.12);      /* hover tint on non-selected cells */
   }
 
   * { box-sizing: border-box; }
@@ -107,13 +122,33 @@
   }
   .topbar .title { letter-spacing: 0.08em; }
   .topbar .stats {
-    color: var(--mute);
+    color: var(--fg);
     letter-spacing: 0.04em;
   }
   .topbar .stats span { color: var(--fg); margin-right: 4px; }
   .topbar nav { display: flex; gap: 18px; align-items: center; }
   .topbar .nav-middle { }
   .topbar .nav-right  { }
+  /* Nav labels (SPRAWL title, FEED, AUTHORS, ENTITIES, ARCS, MARKETPLACE,
+     ABOUT, SKILL, CONNECT, DARK) render in --mute so they sit quietly
+     against the page background. The stats block on the left keeps
+     var(--fg) (set above) because it's actual content, not navigation.
+     Hover: lift to --fg and keep the default underline — both cues
+     together make it clear the item is clickable. */
+  .topbar .title { color: var(--mute); }
+  .topbar nav a  { color: var(--fg); }
+  /* Chip-style hover: a solid --hl background wraps the label and the
+     text flips to --bg. Padding + equal negative margin keeps the outer
+     bounds the same so neighbouring items don't shift. The default
+     a:hover underline still applies, so destination links read as both
+     "button chip" AND "link". */
+  .topbar .title:hover,
+  .topbar nav a:hover {
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
 
   /* Desktop: the wrapper is invisible to layout. Its three children are
      absolute-positioned relative to .panel exactly as they were before
@@ -289,7 +324,11 @@
     right: auto;
     transform: translateX(-50%);
     background: var(--bg);
-    color: var(--fg);
+    /* Default to --mute so the tree-panel's #id readout reads as quieter
+       than the text column's content. The text-panel center (tts-global
+       PAUSE button) already overrides with its own .ctl + .is-pause
+       colours, so changing the container default doesn't affect it. */
+    color: var(--mute);
     letter-spacing: 0.04em;
     padding: 0;
     z-index: 2;
@@ -299,16 +338,40 @@
     max-width: 60%;
   }
   .ctl { cursor: pointer; user-select: none; color: var(--mute); }
+  /* Panel-controls buttons (HIDE INFO, EXPAND, RESET, RANDOM, the tts
+     global PAUSE/PLAY) are actions, not destination links. Hover lifts
+     them from mute grey to full foreground instead of underlining. */
+  /* Same chip-style hover as the topbar nav: solid --hl background,
+     --bg text. Padding + negative margin prevents layout shift inside
+     the flex row of .panel-controls. */
+  .ctl:hover {
+    text-decoration: none;
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
   .ctl-sep { user-select: none; color: var(--mute); }
   /* Path stats readout on the left of the text panel's control row. Grey
      and quiet, matching the other readouts/buttons. */
-  #text-path-stats { color: var(--mute); letter-spacing: 0.04em; }
+  #text-path-stats { color: var(--fg); letter-spacing: 0.04em; }
 
   /* The #id in the tree panel's top band is clickable — readers can click
      it to type any id and jump. Cursor hint + invisible underline match
      the other link styling on the page. */
   #tree-node-info .id-jump { cursor: pointer; }
-  #tree-node-info .id-jump:hover { text-decoration: underline; }
+  /* #id is an action button (click to type/jump to a different link),
+     not a destination link. Chip-style hover matches the topbar nav
+     and panel-controls buttons: solid --hl background, --bg text,
+     no underline. Padding + equal negative margin keeps neighbouring
+     content from shifting. */
+  #tree-node-info .id-jump:hover {
+    text-decoration: none;
+    background: var(--hl);
+    color: var(--bg);
+    padding: 2px 6px;
+    margin: -2px -6px;
+  }
   #tree-node-info input.id-jump-input {
     background: transparent;
     border: none;
@@ -334,44 +397,79 @@
     white-space: pre-wrap;
     overflow-wrap: anywhere;
   }
-  /* Entities in the flowing text are underlined — the underline signals that
-     hovering reveals the entity card. */
-  .text-body .entity {
-    border-bottom: var(--rule) solid var(--fg);
-    cursor: help;
-  }
+  /* Entity references are shown with literal brackets in the prose
+     (rendered by renderLinkText) so the markup itself is the visual
+     cue — no bold, no underline. The span still carries data-entity
+     for the tooltip + navigation handler. */
+  .text-body .entity { cursor: pointer; }
   /* Link blocks flow as one continuous reading. No borders, no extra padding
      between passages — just one line-height of breathing room so the meta
      stays associated with the passage it opens. The background transition
      is so the selected-cell tint fades in (and out) smoothly instead of
      snapping — matters most at the end of the boot sequence, when the
      highlight lands after the text has finished writing itself. */
-  .link-block { margin-bottom: 0; transition: background 0.4s ease-out; }
-  .link-block + .link-block { margin-top: 1.5em; }
+  /* Every link-block shares the same padding + negative horizontal
+     margins so state changes (hover, select) are pure background swaps
+     and never shift layout. Vertical padding is 0.75em top and bottom
+     — exactly half the 1.5em line-height — and the margin between
+     adjacent blocks is zero. That way two neighbouring highlighted
+     cells' backgrounds meet edge-to-edge with no gap, while the
+     reading rhythm (text-to-text distance = 1.5em) is unchanged. */
+  .link-block {
+    margin: 0 calc(-1 * var(--pad));
+    padding: 0.75em var(--pad);
+  }
   .link-block .meta {
     margin: 0 0 4px 0;
     cursor: pointer;
   }
-  /* The whole meta line is the hover target; give a subtle indication that
-     it's interactive without making it look like a link. */
-  .link-block .meta:hover { color: var(--fg); }
-
-  /* The currently selected link-block gets a faint tinted background that
-     bleeds out to the panel edges — pairs the highlighted tree node with
-     its row in the text column, so the reader's eye can map one onto the
-     other at a glance. Negative horizontal margins equal to the panel's
-     padding extend the fill beyond the text column's content box; the
-     small vertical padding inside keeps text off the top/bottom edge
-     without perturbing the flow spacing between blocks. */
-  .link-block.selected {
-    background: var(--sel-bg);
-    margin-left: calc(-1 * var(--pad));
-    margin-right: calc(-1 * var(--pad));
-    padding: 4px var(--pad);
+  /* Destinations in the meta line — #id (re-selects the link), the
+     author name (→ author page), and the COLLECTED BY owner (→ owner
+     page). On hover they underline AND lift to --hl (the accent colour)
+     so the reader knows they're clickable. */
+  .link-block .meta .meta-id:hover,
+  .link-block .meta a:not(.act-play):not(.act-vote):not(.act-collect):hover {
+    text-decoration: underline;
+    color: var(--hl);
   }
-  /* Cancel the 4px top padding inherited by the first block so the
-     selected-top edge aligns with the controls band rule cleanly. */
-  .link-block + .link-block.selected { margin-top: calc(1.5em - 4px); }
+  /* Per-link action affordances (LISTEN / VOTE / COLLECT) are buttons,
+     not destinations. Override the default a:hover underline with a
+     colour change from mute to the accent. */
+  .link-block .meta .act-play:hover,
+  .link-block .meta .act-vote:hover,
+  .link-block .meta .act-collect:hover {
+    text-decoration: none;
+    color: var(--hl);
+  }
+  /* Selected (clicked) block — clear tint. Hovering any non-selected
+     block gets a lighter tint so it reads as "this is what your cursor
+     is over, not your current choice". */
+  /* Active state — hovering the cell, hovering its matching tree node
+     (.hover class set by JS so hover-on-graph lights up the cell too),
+     and selecting all apply the same inversion: --fg background, --bg
+     body prose, --mute meta line, --bg when an item inside the meta
+     line is hovered. All scoped to body:not(.boot) so no highlight
+     kicks in until the initial tree + text wipes have finished — the
+     reader sees the content settle first, then interactions activate. */
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) {
+    background: var(--hl);
+    color: var(--bg);
+  }
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .text-body {
+    color: var(--bg);
+  }
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta a,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta .meta-id {
+    color: var(--mute);
+  }
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta .meta-id:hover,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta a:not(.act-play):not(.act-vote):not(.act-collect):hover,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta .act-play:hover,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta .act-vote:hover,
+  body:not(.boot) :is(.link-block:hover, .link-block.hover, .link-block.selected) .meta .act-collect:hover {
+    color: var(--bg);
+  }
 
   /* --- Narration (sprawl-tts.js) --------------------------------------
      While a link is being narrated, its body is re-rendered with each
@@ -428,31 +526,53 @@
   /* Edges and node stroke widths are derived at render time from the tree
      density (see computeScale in JS) and injected as CSS variables on the
      SVG element. --stroke is the default width; in-path elements use 1.5x. */
-  svg { --stroke: 1; }
+  svg { --stroke: 1.5; }
 
-  svg .edge { stroke: var(--fg); stroke-width: var(--stroke); fill: none; }
-  svg .edge.in-path { stroke-width: calc(var(--stroke) * 1.5); }
+  /* Tree colouring: non-path elements stroke in --mute (the mid-teal),
+     path/selected/hover elements stroke in --fg (the near-black). The
+     old opacity-based dim is gone — distinct colours read clearer and
+     don't wash out against the tinted page background. */
+  /* Edges + nodes + recap-rings that are on the selected ancestry path
+     (in-path) use --fg — same colour as the main text, so the path
+     blends visually with the prose. The *highlighted* element (the
+     clicked node, or whichever node the reader is hovering) uses --hl,
+     standing out against the rest of the path. */
+  svg .edge { stroke: var(--tr); stroke-width: var(--stroke); fill: none; }
+  svg .edge.in-path {
+    stroke: var(--fg);
+    stroke-width: calc(var(--stroke) * 2);
+  }
 
   svg .node {
-    stroke: var(--fg);
+    stroke: var(--tr);
     stroke-width: var(--stroke);
     fill: var(--bg);
+    /* The 0.4s fade smooths the boot-end reveal, when body.boot is
+       removed and the selected node's fill flips from var(--bg) to
+       var(--hl). After boot the transition below strips the animation
+       so hover/click responses feel instant. */
     transition: fill 0.4s ease-out;
   }
-  svg .node.in-path { stroke-width: calc(var(--stroke) * 1.5); }
-  svg .node.selected { fill: var(--fg); }
-  /* Hover preview — filling a second node shows the reader what they'd
-     select if they clicked. Same fill as .selected; both can be visible
-     at once (the clicked node + whatever meta line the reader is
-     hovering in the text column). */
-  svg .node.hover-highlight { fill: var(--fg); }
+  body:not(.boot) svg .node { transition: none; }
+  svg .node.in-path {
+    stroke: var(--fg);
+    stroke-width: calc(var(--stroke) * 2);
+  }
+  /* Selected and hover-highlight rules come AFTER .in-path so that a
+     selected node that is also in-path picks up the --hl fill/stroke
+     instead of the path's --fg (CSS same-specificity, later-wins). */
+  svg .node.selected { fill: var(--hl); stroke: var(--hl); }
+  svg .node.hover-highlight { fill: var(--hl); stroke: var(--hl); }
 
   svg .recap-ring {
-    stroke: var(--fg);
+    stroke: var(--tr);
     stroke-width: var(--stroke);
     fill: none;
   }
-  svg .recap-ring.in-path { stroke-width: calc(var(--stroke) * 1.5); }
+  svg .recap-ring.in-path {
+    stroke: var(--fg);
+    stroke-width: calc(var(--stroke) * 2);
+  }
 
   svg .node-hit { fill: transparent; cursor: pointer; }
   /* When the user isn't hovering a node, the SVG itself is grabbable for
@@ -472,10 +592,7 @@
   /* --- Hide-meta mode: a clean reading view. Suppresses the grey link
      header lines, the entity underlines, and (via JS) the hover tooltip. */
   body.hide-meta .link-block .meta { display: none; }
-  body.hide-meta .text-body .entity {
-    border-bottom: none;
-    cursor: inherit;
-  }
+  body.hide-meta .text-body .entity { cursor: inherit; }
 
   /* In expanded mode, the reading column is much wider than it needs to be,
      so cap the reading width and center it for a comfortable line length. */
@@ -590,13 +707,12 @@
     animation: wipeDown 0.45s ease-out calc(var(--block-index, 0) * 35ms + 120ms) forwards;
   }
 
-  /* Suppress the "selected" highlights for a short window so they don't
-     pre-empt the text-wipe animation. Scoped to its own body class
-     (highlight-wait) so it can be removed independently from .boot —
-     the text-wipe needs the full boot window, but the highlights should
-     land soon after the content starts appearing, not at the very end. */
-  body.highlight-wait .link-block.selected { background: transparent; }
-  body.highlight-wait svg .node.selected   { fill: var(--bg); }
+  /* During boot, the selected tree node holds its unfilled state so it
+     doesn't pre-empt the fade-in animation. The link-block inversion is
+     already gated on body:not(.boot) above, so no equivalent rule is
+     needed for the text column. */
+  body.boot svg .node.selected,
+  body.boot svg .node.hover-highlight { fill: var(--bg); }
 
   /* Hide the initial "loading…" placeholder in the text column during
      boot so it doesn't flash before the first link-block wipes in. Once
@@ -682,9 +798,9 @@
 
     /* EXPAND buttons are desktop-only affordances (each one toggles its
        column to take the full viewport). On mobile the whole page already
-       scrolls and the notion of "expanded" no longer applies. Hide both
-       of them plus the now-stranded separator between HIDE INFO and the
-       (hidden) EXPAND anchor in the text panel. */
+       scrolls and the notion of "expanded" no longer applies. Hide the
+       now-stranded separator between HIDE INFO and the (hidden) EXPAND
+       in the text panel. */
     #toggle-expand,
     #toggle-tree-expand { display: none; }
     #text-panel .panel-controls .ctl-sep { display: none; }
@@ -727,12 +843,12 @@
   }</style>
 <link rel="stylesheet" href="sprawl-modal.css">
 </head>
-<body class="boot highlight-wait">
+<body class="boot">
 
 <div class="topbar">
   <div class="title-group">
     <a class="title" id="title-home" href="index.html">SPRAWL</a>
-    <div class="stats"><span id="stat-writers">–</span>AUTHORS &nbsp;&nbsp;<span id="stat-links">–</span>LINKS</div>
+    <div class="stats"><span id="stat-links">–</span>LINKS | <span id="stat-writers">–</span>AUTHORS</div>
   </div>
   <nav class="nav-middle">
     <a href="authors.html">AUTHORS</a>
@@ -796,7 +912,7 @@
       </div>
       <div class="panel-controls">
         <a id="toggle-meta"   class="ctl" title="show / hide link info">HIDE INFO</a>
-        <span class="ctl-sep">/</span>
+        <span class="ctl-sep">|</span>
         <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
       </div>
     </div>
@@ -809,7 +925,7 @@
     <div class="panel-header">
       <div class="panel-controls panel-controls-left">
         <a id="reset-view"  class="ctl" title="reset view">RESET</a>
-        <span class="ctl-sep">/</span>
+        <span class="ctl-sep">|</span>
         <a id="random-link" class="ctl" title="jump to a random link">RANDOM</a>
       </div>
       <div class="panel-controls panel-controls-center" id="tree-node-info"></div>
@@ -1091,23 +1207,15 @@
       const cx = xToPx(n.x), cy = yToPx(n.depth);
       state.nodePositions[n.id] = { x: cx, y: cy };
 
-      // Collected links render as squares; uncollected stay as circles.
-      // Both carry class="node" + data-id so updateTreeSelection's bulk
-      // selector (`circle.node, rect.node`) treats them identically.
-      const collected = state.collectedLinkOwner.has(n.id);
-      let c;
-      if (collected) {
-        c = document.createElementNS(NS, "rect");
-        c.setAttribute("x", cx - nodeR);
-        c.setAttribute("y", cy - nodeR);
-        c.setAttribute("width",  nodeR * 2);
-        c.setAttribute("height", nodeR * 2);
-      } else {
-        c = document.createElementNS(NS, "circle");
-        c.setAttribute("cx", cx); c.setAttribute("cy", cy);
-        c.setAttribute("r", nodeR);
-      }
-      c.setAttribute("class", collected ? "node collected" : "node");
+      // All nodes render as circles regardless of collected-state — the
+      // collected distinction is already visible through the COLLECTED
+      // BY credit in the text column and the owner line on the asset
+      // pages, so the tree stays visually uniform.
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", cx);
+      c.setAttribute("cy", cy);
+      c.setAttribute("r", nodeR);
+      c.setAttribute("class", "node");
       c.dataset.id = n.id;
       c.style.setProperty("--depth", n.depth);
       const title = document.createElementNS(NS, "title");
@@ -1130,6 +1238,24 @@
         if (dragJustHappened) { dragJustHappened = false; ev.stopPropagation(); return; }
         selectLink(n.id);
       });
+      // Mirror the text-column hover interaction: hovering the tree node
+      // lifts the node AND adds .hover to the matching link-block so the
+      // reader sees both halves of the mapping light up at once.
+      hit.addEventListener("mouseenter", () => {
+        state.hoverId = n.id;
+        updateTreeSelection();
+        const block = document.querySelector(`.link-block[data-id="${CSS.escape(String(n.id))}"]`);
+        if (block) block.classList.add("hover");
+      });
+      hit.addEventListener("mouseleave", () => {
+        const id = state.hoverId;
+        state.hoverId = null;
+        updateTreeSelection();
+        if (id != null) {
+          const block = document.querySelector(`.link-block[data-id="${CSS.escape(String(id))}"]`);
+          if (block) block.classList.remove("hover");
+        }
+      });
       svg.appendChild(hit);
     }
 
@@ -1141,6 +1267,40 @@
   // -----------------------------------------------------------------------
   // Zoom / pan via SVG viewBox
   // -----------------------------------------------------------------------
+  // Clamp state.view so at least part of the tree stays visible. The
+   // tree's bounding box is derived from every node position; we let
+   // the viewBox drift by up to 30% of its own width/height beyond the
+   // tree's bounds before refusing to go further. Without this, the
+   // reader could pan the entire tree off-screen and stare at a blank
+   // panel with no hint of how to get back.
+  function treeBounds() {
+    const positions = Object.values(state.nodePositions || {});
+    if (!positions.length) return null;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const p of positions) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { minX, maxX, minY, maxY };
+  }
+  function clampViewToTree() {
+    const b = treeBounds();
+    if (!b) return;
+    const v = state.view;
+    const slackX = v.w * 0.3;
+    const slackY = v.h * 0.3;
+    const minVx = b.minX - v.w + slackX;   // right edge can go no further left than minX + slack
+    const maxVx = b.maxX - slackX;         // left edge can go no further right than maxX - slack
+    const minVy = b.minY - v.h + slackY;
+    const maxVy = b.maxY - slackY;
+    if (v.x < minVx) v.x = minVx;
+    if (v.x > maxVx) v.x = maxVx;
+    if (v.y < minVy) v.y = minVy;
+    if (v.y > maxVy) v.y = maxVy;
+  }
+
   function applyViewBox() {
     const svg = document.getElementById("tree-svg");
     if (!svg) return;
@@ -1228,12 +1388,13 @@
       const mx = ((e.clientX - rect.left) / rect.width)  * state.view.w + state.view.x;
       const my = ((e.clientY - rect.top)  / rect.height) * state.view.h + state.view.y;
       const factor = Math.exp(e.deltaY * 0.0015);
-      // Clamp zoom. The zoomed-out cap matches the initial full-tree view
-      // exactly (including its padding), so manual zoom-out and page-load
-      // view are flush. Zoom-in stays free up to ~20× closer.
+      // Clamp zoom. The zoomed-out cap matches the initial full-tree
+      // view (including its padding), so manual zoom-out and page-load
+      // view are flush. Zoom-in is capped at ~4× closer so the reader
+      // can't bury a single node fullscreen with empty space around it.
       const fullW = state.viewPx ? state.viewPx.w : 800;
       const loadW = fullW + 2 * FULL_TREE_PAD;
-      const minW = fullW * 0.05;
+      const minW = fullW * 0.25;
       const maxW = loadW;
       let newW = state.view.w * factor;
       if (newW < minW) newW = minW;
@@ -1243,6 +1404,7 @@
       state.view.y = my - (my - state.view.y) * actualFactor;
       state.view.w = state.view.w * actualFactor;
       state.view.h = state.view.h * actualFactor;
+      clampViewToTree();
       applyViewBox();
     }, { passive: false });
 
@@ -1267,6 +1429,7 @@
         const scale = state.view.w / rect.width;
         state.view.x -= dx * scale;
         state.view.y -= dy * scale;
+        clampViewToTree();
         applyViewBox();
       }
     });
@@ -1300,9 +1463,12 @@
     const hoverId = state.hoverId && state.hoverId !== selectedId ? state.hoverId : null;
     const readoutId = hoverId || selectedId;
     const r = state.nodeR || 4;
-    // Nodes come in two shapes: circles (uncollected) and rects (collected).
-    // Both carry class="node" and share the same in-path / selected classes;
-    // the size attributes differ per shape.
+    // Three-tier sizing so the visual hierarchy reads at a glance:
+    //   base            — r       (nodes off the current branch)
+    //   in-path         — r × 1.5 (the ancestry from genesis to selected)
+    //   selected / hover — r × 2   (the node you clicked or are pointing at)
+    // Selected and hover share the larger size so a hover preview visibly
+    // matches what clicking would produce.
     svg.querySelectorAll(".node").forEach(el => {
       const id = el.dataset.id;
       const inPath = ancestryIds.has(id);
@@ -1311,19 +1477,10 @@
       el.classList.toggle("in-path", inPath);
       el.classList.toggle("selected", isSelected);
       el.classList.toggle("hover-highlight", isHover);
-      const size = (inPath || isSelected || isHover) ? r * 1.5 : r;
-      if (el.tagName === "rect") {
-        // Keep the rect centered on the node's original (cx, cy). We stored
-        // nodeR at initial layout, so positions are relative to that.
-        const cx = Number(el.getAttribute("x")) + Number(el.getAttribute("width"))  / 2;
-        const cy = Number(el.getAttribute("y")) + Number(el.getAttribute("height")) / 2;
-        el.setAttribute("x", cx - size);
-        el.setAttribute("y", cy - size);
-        el.setAttribute("width",  size * 2);
-        el.setAttribute("height", size * 2);
-      } else {
-        el.setAttribute("r", size);
-      }
+      let size = r;
+      if (isSelected || isHover) size = r * 2;
+      else if (inPath)           size = r * 1.5;
+      el.setAttribute("r", size);
     });
     svg.querySelectorAll("circle.recap-ring").forEach(el => {
       el.classList.toggle("in-path", ancestryIds.has(el.dataset.id));
@@ -1503,15 +1660,18 @@
     t = t.replace(/\{[a-z0-9-]+\}\s*/g, "");
 
     // Entity tags work in two modes. Attached mode first: a word immediately
-    // followed by `[id]` means "this word refers to <id>". Keep the word,
-    // strip the bracket, attach the id as metadata.
+    // followed by `[id]` means "this word refers to <id>". We keep the word
+    // visible and wrap it in literal brackets so the reader sees the entity
+    // marker in the prose itself. The id rides along as data-entity for
+    // the tooltip / click handler.
     t = t.replace(/(\w+)\[([a-z0-9-]+)\]/g, (m, word, id) => {
-      return `<span class="entity" data-entity="${id}">${word}</span>`;
+      return `<span class="entity" data-entity="${id}">[${word}]</span>`;
     });
 
-    // Standalone mode: a bare `[id]` with no preceding word is replaced by
-    // the entity's display name. If the name starts with "The " and we are
-    // mid-sentence, lowercase it so the passage reads naturally.
+    // Standalone mode: a bare `[id]` becomes the entity's display name,
+    // still wrapped in brackets so it reads as a tagged reference rather
+    // than inline prose. If the name starts with "The " and we are mid-
+    // sentence, lowercase it so the passage reads naturally.
     t = t.replace(/\[([a-z0-9-]+)\]/g, (m, id, offset) => {
       const e = resolveEntity(id);
       if (!e) return m;
@@ -1519,7 +1679,7 @@
       if (/^The /.test(name) && !isSentenceStart(t, offset)) {
         name = "the " + name.slice(4);
       }
-      return `<span class="entity" data-entity="${id}">${escapeHtml(name)}</span>`;
+      return `<span class="entity" data-entity="${id}">[${escapeHtml(name)}]</span>`;
     });
 
     return t;
@@ -1588,11 +1748,17 @@
       const voteActionHtml = canVote
         ? ` | <a class="act-vote" href="#" data-link-id="${escapeHtml(link.id)}">VOTE</a>`
         : "";
-      // COLLECT affordance at the end of the meta line for any link that
-      // isn't already on-chain. The click handler is bound below, right
-      // after innerHTML is set, with stopPropagation so it doesn't also
-      // trigger the meta-line "re-select this link" handler.
-      const collectActionHtml = (!ownerAddr && !link.cleared && link.id !== "0")
+      // COLLECT affordance at the end of the meta line. Same gating as
+      // VOTE: connected wallet, on Sepolia, registered as an author.
+      // On top of that, the link must not already be on-chain, not
+      // cleared, and not the genesis (#0) which can't be collected.
+      const canCollect = sprawlWallet.isConnected()
+        && sprawlWallet.isOnSepolia()
+        && state.voterRegistered
+        && !ownerAddr
+        && !link.cleared
+        && link.id !== "0";
+      const collectActionHtml = canCollect
         ? ` | <a class="act-collect" href="#" data-link-id="${escapeHtml(link.id)}">COLLECT</a>`
         : "";
       // PLAY affordance. Omitted on cleared links (nothing to narrate).
@@ -1601,7 +1767,11 @@
       const playActionHtml = !link.cleared
         ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">LISTEN</a>`
         : "";
-      const meta = `#${link.id} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
+      // #id is wrapped so CSS can give it a hover underline — signals
+      // that clicking the cell navigates to this link (same as clicking
+      // the tree node).
+      const idHtml = `<span class="meta-id">#${escapeHtml(link.id)}</span>`;
+      const meta = `${idHtml} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
       const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
       const selected = link.id === id ? " selected" : "";
       // --block-index feeds the boot-stagger (see body.boot rules in CSS).
@@ -1797,20 +1967,24 @@
   function bindTextHover() {
     const scroller = document.querySelector("#text-panel .panel-scroll");
     if (!scroller) return;
-    scroller.querySelectorAll(".link-block > .meta").forEach(el => {
-      const id = el.parentElement.dataset.id;
-      el.addEventListener("mouseenter", () => {
+    // Hovering and clicking both target the whole cell — meta line or
+    // body text. Anchors inside the cell (.act-play, .act-vote,
+    // .act-collect) already call ev.stopPropagation() in their own
+    // handlers so their interactions don't also trigger selectLink.
+    scroller.querySelectorAll(".link-block").forEach(block => {
+      const id = block.dataset.id;
+      block.addEventListener("mouseenter", () => {
         state.hoverId = id;
         updateTreeSelection();
       });
-      el.addEventListener("mouseleave", () => {
+      block.addEventListener("mouseleave", () => {
         state.hoverId = null;
         updateTreeSelection();
       });
-      // In-text clicks are always a prefix truncation of the current path
-      // — preserve scroll so the clicked link stays in place and the
-      // content below it drops away.
-      el.addEventListener("click", () => selectLink(id, { preserveScroll: true }));
+      // In-text clicks are always a prefix truncation of the current
+      // path — preserve scroll so the clicked block stays in place and
+      // the content below it drops away.
+      block.addEventListener("click", () => selectLink(id, { preserveScroll: true }));
     });
   }
 
@@ -2091,18 +2265,12 @@
       renderText();
     });
 
-    // Two separate timers end two separate windows:
-    //   highlight-wait — short. Suppresses the selected cell-tint and
-    //     the filled selected node until shortly after the text starts
-    //     appearing, so the highlights land just behind the content
-    //     instead of hanging back.
-    //   boot           — longer. Gates the staggered reveal animations
-    //     themselves (topbar rule, panel divider, tree nodes + edges,
-    //     text blocks). Must be long enough to cover the worst-case
-    //     ancestry length, otherwise the tail of the text column cuts
-    //     off mid-wipe.
-    setTimeout(() => document.body.classList.remove("highlight-wait"), 2400);
-    setTimeout(() => document.body.classList.remove("boot"),           3500);
+    // body.boot gates the staggered reveal animations (topbar rule,
+    // panel divider, tree nodes + edges, text blocks) AND the hover /
+    // selected inversion on the text cells and tree nodes. Must be long
+    // enough to cover the worst-case ancestry length so the tail of the
+    // text column doesn't cut off mid-wipe.
+    setTimeout(() => document.body.classList.remove("boot"), 3500);
   })();
 })();
 </script>

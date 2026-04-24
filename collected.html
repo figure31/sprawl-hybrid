@@ -72,7 +72,7 @@
   .topbar > .nav-marketplace { left: 75%; }
   .topbar .title { letter-spacing: 0.08em; }
   .topbar nav { display: flex; gap: 18px; }
-  .topbar nav a.active { text-decoration: underline; }
+  .topbar nav a.active { text-decoration: none; }
 
   /* Three equal-width columns filling the viewport, separated by rules.
      The right-side rule on each column (except the last) is a ::after
@@ -125,13 +125,10 @@
     letter-spacing: 0.08em;
     background: var(--bg);
   }
-  /* Global stat pinned to the right of each column header. `margin-left:
-     auto` pushes it across the flex row so the title stays anchored on
-     the left and the value reads on the right, with the column's own
-     padding providing the gutter. Starts at "—" and populates once the
-     stats query returns. */
+  /* Global stat pinned to the right of each column header. Non-clickable
+     content → --fg (matches the convention used site-wide). */
   .col > h2 .stat {
-    color: var(--mute);
+    color: var(--fg);
     letter-spacing: 0.04em;
     margin-left: auto;
   }
@@ -141,41 +138,118 @@
     flex: 1;
   }
 
-  h3 {
-    margin: 18px 0 6px 0;
+  /* A collector "cell" wraps the collector's h3 AND all their items,
+     so hovering anywhere lights up the whole group as one block.
+     Only the collector username inside h3 reads in --mute (it's the
+     only clickable that signals "this goes to a profile"); everything
+     else — shortAddr, count, item labels, creator credits — stays
+     --fg so the section reads as content, not as a sea of links. */
+  .collector-group {
+    margin: 0 calc(-1 * var(--pad));
+    padding: 0.5em var(--pad);
+    color: var(--fg);
+    cursor: pointer;
+  }
+  .collector-group h3 {
+    margin: 0 0 2px 0;
     font-size: var(--font-size);
     font-weight: normal;
     letter-spacing: 0.08em;
+    color: var(--fg);
   }
-  h3:first-of-type { margin-top: 0; }
+  /* Only the collector username (the named anchor inside h3) is
+     --mute. Everything else in the collector group stays --fg. */
+  .collector-group h3 .owner-name { color: var(--mute); }
 
-  /* Items sit snug under their group header — no visual break between
-     siblings of the same collector. */
-  .item  { margin-bottom: 2px; }
-  /* Sales/listings rows hold multiple meta lines, so they get breathing
-     room between rows while staying tight internally. */
-  .row   { margin-bottom: 14px; }
-  .meta  { color: var(--mute); letter-spacing: 0.04em; }
+  .collector-group:hover {
+    background: var(--hl);
+    color: var(--bg);
+  }
+  .collector-group:hover h3,
+  .collector-group:hover .item,
+  .collector-group:hover .item a { color: var(--bg); }
+  .collector-group:hover h3 .owner-name { color: var(--mute); }
+  .collector-group:hover h3 .owner-name:hover,
+  .collector-group:hover .item a:hover { color: var(--bg); }
+
+  /* Each .item inside a collector group is one text line — no vertical
+     padding, so the list reads like a paragraph under the owner. */
+  .item { margin: 0; padding: 0; }
+
+  /* Sales + listings stay as individual cells, same colour logic as
+     the collectors group: everything inside is --fg so the rows read
+     as content, not a stack of --mute links. The only --mute element
+     in a listing is the BUY action — the equivalent of the collector
+     username in the other column, the one item that needs to signal
+     "this is the primary interaction". Sales rows have no --mute
+     element since there's no single dominant action on a sale. */
+  .row,
+  .listing-row {
+    margin: 0 calc(-1 * var(--pad));
+    padding: 0.5em var(--pad);
+    cursor: pointer;
+    color: var(--fg);
+  }
+  /* Asset label (link #id, entity [id], arc {id}) on the first line
+     of each sale / listing is the "distinguishing clickable" — parallel
+     to the owner-name in a collector group. Stays --mute at rest AND on
+     cell hover; sub-hover on a Link asset-label flips to --bg. */
+  .row .asset-label,
+  .listing-row .asset-label { color: var(--mute); }
+
+  .row:hover,
+  .listing-row:hover {
+    background: var(--hl);
+    color: var(--bg);
+  }
+  /* .price has an explicit color: var(--fg) at rest — inheritance
+     doesn't reach it on hover, so override explicitly. */
+  .row:hover .price,
+  .listing-row:hover .price { color: var(--bg); }
+  /* Asset label stays --mute on cell hover (mirrors owner-name). */
+  .row:hover .asset-label,
+  .listing-row:hover .asset-label { color: var(--mute); }
+  /* Sub-hover on the asset link (Link kind only) or any other anchor
+     flips to --bg for focus. */
+  .row:hover a:hover,
+  .listing-row:hover a:hover { color: var(--bg); }
+
+  /* .meta inline spans inherit --fg from the row at rest and flip to
+     --bg on cell hover along with the rest of the content. */
+  .meta  { letter-spacing: 0.04em; }
   .price { color: var(--fg); }
   .empty { color: var(--mute); }
 
   /* Listing top line: the asset label + price on the left, the BUY
      action pushed to the right with space-between. `align-items:
      baseline` keeps BUY aligned with the price's text baseline rather
-     than floating vertically centered. */
+     than floating vertically centered. min-width: 0 on the first
+     flex child lets it shrink when the asset label is long; the BUY
+     slot refuses to shrink so it always stays visible on the right. */
   .listing-head {
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     gap: 12px;
   }
+  .listing-head > span:first-child {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .listing-head .act-buy { flex-shrink: 0; }
   .listing-head .act-buy {
     cursor: pointer;
     user-select: none;
-    color: var(--fg);
+    color: var(--mute);
     letter-spacing: 0.04em;
   }
-  .listing-head .act-buy:hover { text-decoration: underline; }
+  /* BUY is an action button — on sub-hover inside the hovered listing
+     cell, flip to --bg with no underline (the chip background is
+     redundant against the already-inverted cell). */
+  .listing-head .act-buy:hover {
+    text-decoration: none;
+    color: var(--bg);
+  }
   .listing-head .act-buy.hidden { display: none; }
 
   /* Narrow screens: stack the columns top-to-bottom, reorder them so
@@ -331,9 +405,7 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
     return fracStr ? `${whole}.${fracStr} ETH` : `${whole} ETH`;
   }
   function assetHref(kind, nativeId) {
-    if (kind === "Link")   return `index.html#link-${encodeURIComponent(nativeId)}`;
-    if (kind === "Entity") return `entities.html`;
-    if (kind === "Arc")    return `arcs.html`;
+    if (kind === "Link") return `index.html#link-${encodeURIComponent(nativeId)}`;
     return "#";
   }
   function assetLabel(kind, nativeId) {
@@ -341,6 +413,17 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
     if (kind === "Entity") return `[${escapeHtml(nativeId)}]`;
     if (kind === "Arc")    return `{${escapeHtml(nativeId)}}`;
     return escapeHtml(String(nativeId));
+  }
+  // Only Link kinds render as anchors — entities.html / arcs.html
+  // aren't deep-linkable per item, so their labels read as plain text.
+  // Either way the label gets the .asset-label class so sales and
+  // listings can style it as the --mute distinguishing element on
+  // the first line of each cell.
+  function assetMarkup(kind, nativeId) {
+    const label = assetLabel(kind, nativeId);
+    return kind === "Link"
+      ? `<a class="asset-label" href="${assetHref(kind, nativeId)}">${label}</a>`
+      : `<span class="asset-label">${label}</span>`;
   }
   function authorHref(addr) {
     return "author.html?addr=" + encodeURIComponent(addr);
@@ -432,18 +515,26 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
       for (const addr of owners) {
         const items = byOwner[addr];
         const name = nameByAddr[addr];
-        const label = name
-          ? `<a href="${authorHref(addr)}">${escapeHtml(name.toUpperCase())}</a> <span class="meta">${shortAddr(addr)}</span>`
-          : `<a href="${authorHref(addr)}">${shortAddr(addr)}</a>`;
-        html.push(`<h3>${label} <span class="meta">(${items.length})</span></h3>`);
-        for (const a of items) {
+        // The owner's name link is the only --mute element inside the
+        // group; the count renders as plain --fg content next to it.
+        // Unregistered owners fall back to the shortened address as
+        // their only identifier.
+        const nameLink = `<a class="owner-name" href="${authorHref(addr)}">${escapeHtml(name ? name.toUpperCase() : shortAddr(addr))}</a>`;
+        // Whole collector block is one clickable cell (navigates to the
+        // owner's profile). Inner anchors on individual items still
+        // preempt the cell-click handler.
+        const itemsHtml = items.map(a => {
           const creatorAddr = a.creator && a.creator.id;
           const creatorLabel = creatorAddr ? displayName(creatorAddr) : "—";
-          html.push(`<div class="item">
-            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
-            <span class="meta">by <a href="${authorHref(creatorAddr)}">${escapeHtml(creatorLabel)}</a></span>
-          </div>`);
-        }
+          return `<div class="item" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
+            ${assetMarkup(a.kind, a.nativeId)}
+            by <a href="${authorHref(creatorAddr)}">${escapeHtml(creatorLabel)}</a>
+          </div>`;
+        }).join("");
+        html.push(`<div class="collector-group" data-owner="${escapeHtml(addr)}">
+          <h3>${nameLink} (${items.length})</h3>
+          ${itemsHtml}
+        </div>`);
       }
       el.innerHTML = html.join("");
       sprawlBoot.stagger(el);
@@ -480,9 +571,9 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
         const txLink = txHash
           ? `<a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank" rel="noopener">${txShort}</a>`
           : "";
-        html.push(`<div class="row">
+        html.push(`<div class="row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
           <div>
-            <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+            ${assetMarkup(a.kind, a.nativeId)}
             <span class="price">${formatEth(s.price)}</span>
           </div>
           <div class="meta">${tag} | ${txLink}</div>
@@ -531,7 +622,7 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
              data-creator-name="${escapeHtml(creatorRegName)}">
           <div class="listing-head">
             <span>
-              <a href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>
+              ${assetMarkup(a.kind, a.nativeId)}
               <span class="price">${formatEth(l.price)}</span>
             </span>
             <a class="act-buy" href="#">BUY</a>
@@ -618,6 +709,25 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
       creatorAddr, creatorName,
       ownerAddr,
       ownerName: nameByAddr[ownerAddr] || "",
+    });
+  });
+
+  // Click anywhere on a Link-kind cell (sales / listings rows, or
+  // items inside a collector group) navigates to that link. Clicking
+  // empty space inside a .collector-group (not on an item or anchor)
+  // navigates to the owner's profile. Inner anchors + BUY preempt.
+  document.querySelectorAll(".columns").forEach(el => {
+    el.addEventListener("click", (ev) => {
+      if (ev.target.closest("a, .act-buy")) return;
+      const row = ev.target.closest(".item, .row, .listing-row");
+      if (row && row.dataset.kind === "Link" && row.dataset.nativeId) {
+        location.href = "index.html#link-" + encodeURIComponent(row.dataset.nativeId);
+        return;
+      }
+      const group = ev.target.closest(".collector-group");
+      if (group && group.dataset.owner) {
+        location.href = "author.html?addr=" + encodeURIComponent(group.dataset.owner);
+      }
     });
   });
 
