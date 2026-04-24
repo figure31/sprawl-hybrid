@@ -529,7 +529,7 @@
 <div class="topbar">
   <div class="title-group">
     <a class="title" id="title-home" href="index.html">SPRAWL</a>
-    <div class="stats"><span id="stat-writers">–</span>WRITERS &nbsp;&nbsp;<span id="stat-links">–</span>LINKS</div>
+    <div class="stats"><span id="stat-writers">–</span>AUTHORS &nbsp;&nbsp;<span id="stat-links">–</span>LINKS</div>
   </div>
   <nav class="nav-middle">
     <a href="authors.html">AUTHORS</a>
@@ -562,7 +562,7 @@
       <span id="tts-bars" aria-hidden="true"><span></span><span></span><span></span></span>
     </div>
     <div class="panel-controls">
-      <a id="toggle-meta"   class="ctl" title="toggle link info">INFO</a>
+      <a id="toggle-meta"   class="ctl" title="show / hide link info">HIDE INFO</a>
       <span class="ctl-sep">/</span>
       <a id="toggle-expand" class="ctl" title="toggle expanded column">EXPAND</a>
     </div>
@@ -1618,7 +1618,10 @@
     const expandBtn = document.getElementById("toggle-expand");
     if (metaBtn) {
       metaBtn.addEventListener("click", () => {
-        document.body.classList.toggle("hide-meta");
+        // Info is visible by default, so the button offers the action the
+        // user can take next: HIDE INFO when shown, REVEAL INFO when hidden.
+        const nowHidden = document.body.classList.toggle("hide-meta");
+        metaBtn.textContent = nowHidden ? "REVEAL INFO" : "HIDE INFO";
       });
     }
     if (expandBtn) {
