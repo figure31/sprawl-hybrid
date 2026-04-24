@@ -72,3 +72,75 @@ body.boot .boot-item {
    matching at 3.5s and the placeholder becomes visible, so the
    reader still gets feedback on a slow network. */
 body.boot .boot-loading { opacity: 0; }
+
+/* =============================================================
+   Mobile hamburger + dropdown nav.
+
+   Shared by every non-homepage page. (index.html carries an
+   identical copy inline because its <style> is monolithic.)
+
+   Desktop (>720px): hamburger hidden, normal topbar rendered.
+   Mobile (≤720px):  all desktop nav groups hidden, hamburger
+                     visible; clicking it toggles .is-open on
+                     #nav-mobile which flips it to display: flex.
+   ============================================================= */
+
+.nav-hamburger {
+  /* !important because Safari's <button> UA style otherwise leaks
+     through in edge cases (empty buttons with only absolute-positioned
+     children were rendering as a full-width grid item). */
+  display: none !important;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  justify-self: end;
+  width: 22px;
+  height: 16px;
+  position: relative;
+}
+.nav-hamburger > span {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--rule, 1px);
+  background: var(--fg);
+  transition: transform 160ms ease, opacity 120ms ease, top 160ms ease;
+}
+.nav-hamburger > span:nth-child(1) { top: 0; }
+.nav-hamburger > span:nth-child(2) { top: 50%; transform: translateY(-50%); }
+.nav-hamburger > span:nth-child(3) { top: calc(100% - var(--rule, 1px)); }
+.nav-hamburger.is-open > span:nth-child(1) { top: 50%; transform: translateY(-50%) rotate(45deg); }
+.nav-hamburger.is-open > span:nth-child(2) { opacity: 0; }
+.nav-hamburger.is-open > span:nth-child(3) { top: 50%; transform: translateY(-50%) rotate(-45deg); }
+
+.nav-mobile {
+  display: none;
+  position: fixed;
+  top: var(--topbar-h, 44px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px var(--pad, 12px);
+  border-bottom: var(--rule, 1px) solid var(--fg);
+  z-index: 19;
+  letter-spacing: 0.04em;
+}
+.nav-mobile.is-open { display: flex; }
+.nav-mobile a { display: block; padding: 2px 0; }
+
+@media (max-width: 720px) {
+  .topbar { grid-template-columns: 1fr auto; }
+  .topbar .title-group { gap: 12px; }
+  .topbar .stats { font-size: 12px; }
+
+  .topbar > .nav-middle,
+  .topbar > .nav-feed,
+  .topbar > .nav-marketplace,
+  .topbar > .nav-right { display: none; }
+
+  .nav-hamburger { display: inline-block !important; }
+}

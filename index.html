@@ -115,6 +115,80 @@
   .topbar .nav-middle { }
   .topbar .nav-right  { }
 
+  /* --- Mobile hamburger + dropdown nav ----------------------------------
+     On desktop these stay out of the way. On narrow viewports we hide the
+     scattered desktop nav groups and surface a single hamburger that
+     reveals a vertical list of every link. Kept scoped to the homepage
+     for now — will roll out to other pages once this pattern settles. */
+  .nav-hamburger {
+    /* !important because Safari's <button> UA style otherwise leaks
+       through in edge cases (empty buttons with only absolute-positioned
+       children were rendering as a full-width grid item). */
+    display: none !important;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    justify-self: end;
+    width: 22px;
+    height: 16px;
+    position: relative;
+  }
+  .nav-hamburger > span {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: var(--rule);
+    background: var(--fg);
+    transition: transform 160ms ease, opacity 120ms ease, top 160ms ease;
+  }
+  .nav-hamburger > span:nth-child(1) { top: 0;  }
+  .nav-hamburger > span:nth-child(2) { top: 50%; transform: translateY(-50%); }
+  .nav-hamburger > span:nth-child(3) { top: calc(100% - var(--rule)); }
+  /* Open state — lines morph into an X. */
+  .nav-hamburger.is-open > span:nth-child(1) { top: 50%; transform: translateY(-50%) rotate(45deg); }
+  .nav-hamburger.is-open > span:nth-child(2) { opacity: 0; }
+  .nav-hamburger.is-open > span:nth-child(3) { top: 50%; transform: translateY(-50%) rotate(-45deg); }
+
+  /* Mobile dropdown nav. Default state is hidden (display: none); adding
+     the .is-open class flips it to display: flex. Class-based toggle
+     keeps specificity predictable and avoids the tie between
+     `.nav-mobile { display: flex }` and `.nav-mobile[hidden] { display: none }`
+     that some Safari versions have resolved in the wrong order. */
+  .nav-mobile {
+    display: none;
+    position: fixed;
+    top: var(--topbar-h);
+    left: 0;
+    right: 0;
+    background: var(--bg);
+    flex-direction: column;
+    gap: 14px;
+    padding: 18px var(--pad);
+    border-bottom: var(--rule) solid var(--fg);
+    z-index: 19;          /* below .topbar (z:20), above content */
+    letter-spacing: 0.04em;
+  }
+  .nav-mobile.is-open { display: flex; }
+  .nav-mobile a { display: block; padding: 2px 0; }
+
+  @media (max-width: 720px) {
+    /* Stats on mobile: keep SPRAWL + the counts, just tighten the gap so
+       it doesn't push into the hamburger. */
+    .topbar { grid-template-columns: 1fr auto; }
+    .topbar .title-group { gap: 12px; }
+    .topbar .stats { font-size: 12px; }
+
+    /* Hide every desktop nav group; hamburger takes over. */
+    .topbar > .nav-middle,
+    .topbar > .nav-feed,
+    .topbar > .nav-marketplace,
+    .topbar > .nav-right { display: none; }
+
+    .nav-hamburger { display: inline-block !important; }
+  }
+
   /* Two-column layout: text on the left, tree on the right. Entities used
      to live in a third column; they're now hover-tooltips on the text. */
   .layout {
@@ -521,7 +595,98 @@
      boot so it doesn't flash before the first link-block wipes in. Once
      body.boot is removed at 3.5s, the placeholder (if somehow still
      visible due to a slow fetch) becomes visible again. */
-  body.boot .boot-loading { opacity: 0; }</style>
+  body.boot .boot-loading { opacity: 0; }
+
+  /* --- Mobile layout override ----------------------------------------
+     Placed at the END of the stylesheet so it wins against the default
+     `.layout { position: fixed ... grid-template-columns: 50% 50% }`
+     (same selector, later source position wins ties).
+
+     On mobile the desktop's "two pinned viewport-height panels with
+     internal scroll" model breaks — too cramped, awkward to read.
+     Instead the page flows as a normal scrolling document: the tree
+     on top as a navigational overview, the full text below. Topbar
+     stays fixed at top; everything else scrolls. */
+  @media (max-width: 720px) {
+    /* Let the document scroll. Desktop locks html/body to viewport
+       height with overflow:hidden because each panel scrolls
+       internally; on mobile we want the whole page to scroll as one. */
+    html, body {
+      height: auto;
+      overflow: visible;
+    }
+
+    .layout {
+      position: static;
+      display: flex;
+      flex-direction: column;
+      padding-top: var(--topbar-h);   /* clear the fixed topbar */
+    }
+    #tree-panel { order: 1; }         /* tree above */
+    #text-panel { order: 2; }         /* text below */
+
+    /* Panels drop their fixed-viewport behaviour — no internal scroll,
+       no clipping; they grow to fit their own content. */
+    .panel       { overflow: visible; }
+    #text-panel  { overflow: visible; }
+
+    /* The text panel's .panel-scroll goes from absolute-filling its
+       parent to natural flow. Padding-top already reserves space below
+       the controls band via the desktop rule, so nothing overlaps. */
+    #text-panel .panel-scroll {
+      position: static;
+      overflow: visible;
+    }
+
+    /* The tree wrap was absolute (top:controls-h, bottom:0). With the
+       panel in natural flow, give it an explicit height so the tree
+       stays a bounded overview instead of stretching to fit every
+       branch. Kept short enough on portrait mobile that clicking a
+       node leaves visible room below for the selected link's text to
+       show. margin-top clears the absolute-positioned panel-controls
+       band at the top of the panel. */
+    #tree-wrap {
+      position: static;
+      top: auto;
+      height: 38vh;
+      min-height: 240px;
+      margin-top: var(--controls-h);
+    }
+
+    /* Separator flips from a right-side vertical rule to a bottom
+       horizontal rule on the tree panel (which is now on top). */
+    .panel::after { display: none; }
+    #tree-panel   { border-bottom: var(--rule) solid var(--fg); }
+
+    /* Tighter meta line on mobile: block number drops out; the leading
+       "| " is inside the span so removing it doesn't leave a stranded
+       separator between #id and author. */
+    .meta-block { display: none; }
+
+    /* Keep the meta line on a single row even when it overflows the
+       column width — the reader scrolls horizontally inside the line
+       instead of seeing it wrap. Scrollbar hidden for aesthetics (the
+       swipe gesture still works). touch-action: pan-x tells iOS to
+       prefer horizontal panning on the line without blocking vertical
+       page scroll. */
+    .link-block .meta {
+      white-space: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      touch-action: pan-x;
+      scrollbar-width: none;
+    }
+    .link-block .meta::-webkit-scrollbar { display: none; }
+
+    /* EXPAND buttons are desktop-only affordances (each one toggles its
+       column to take the full viewport). On mobile the whole page already
+       scrolls and the notion of "expanded" no longer applies. Hide both
+       of them plus the now-stranded separator between HIDE INFO and the
+       (hidden) EXPAND anchor in the text panel. */
+    #toggle-expand,
+    #toggle-tree-expand { display: none; }
+    #text-panel .panel-controls .ctl-sep { display: none; }
+  }</style>
 <link rel="stylesheet" href="sprawl-modal.css">
 </head>
 <body class="boot highlight-wait">
@@ -550,7 +715,29 @@
     <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
+
+  <!-- Mobile hamburger: visible only below the desktop breakpoint. Opens
+       .nav-mobile below. Three <span>s act as the three horizontal bars
+       and morph into an X when .is-open is set (pure CSS transform). -->
+  <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu"
+          aria-controls="nav-mobile" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
 </div>
+
+<!-- Mobile nav overlay. Lives outside .topbar so it can sit directly
+     below it without worrying about the grid. Hidden on desktop. -->
+<nav id="nav-mobile" class="nav-mobile">
+  <a href="feed.html">FEED</a>
+  <a href="authors.html">AUTHORS</a>
+  <a href="entities.html">ENTITIES</a>
+  <a href="arcs.html">ARCS</a>
+  <a href="collected.html">MARKETPLACE</a>
+  <a href="about.html">ABOUT</a>
+  <a href="skill.md">SKILL</a>
+  <a class="js-wallet-connect" href="#">CONNECT</a>
+  <a class="js-theme-toggle"   href="#">DARK</a>
+</nav>
 
 <div class="layout">
   <section class="panel" id="text-panel">
@@ -913,6 +1100,7 @@
   }
 
   function frameFullTree() {
+    state.frameMode = "full";
     const vp = state.viewPx || { w: 800, h: 600 };
     // A bit of viewBox padding around the tree so it isn't flush with the
     // panel edges (compensates for the tighter SVG margins we use to keep
@@ -929,6 +1117,7 @@
 
   function frameAncestors(count) {
     if (!state.selectedId) return frameFullTree();
+    state.frameMode = "ancestors";
     const path = ancestryOf(state.selectedId);
     const slice = path.slice(-count);
     const positions = slice
@@ -1363,7 +1552,11 @@
       const playActionHtml = !link.cleared
         ? ` | <a class="act-play" href="#" data-link-id="${escapeHtml(link.id)}">PLAY</a>`
         : "";
-      const meta = `#${link.id} | ${link.blockNumber} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
+      // blockNumber is wrapped so we can hide it on narrow viewports —
+      // the leading "| " is inside the span, so removing it doesn't leave
+      // a dangling separator on mobile.
+      const blockHtml = `<span class="meta-block"> | ${link.blockNumber}</span>`;
+      const meta = `#${link.id}${blockHtml} | ${authorHtml} | +${link.voteCount}${playActionHtml}${voteActionHtml}${collectedHtml}${collectActionHtml}`;
       const body = link.cleared ? '<span class="empty">[cleared]</span>' : renderLinkText(link.text);
       const selected = link.id === id ? " selected" : "";
       // --block-index feeds the boot-stagger (see body.boot rules in CSS).
@@ -1375,9 +1568,15 @@
       </div>`;
     }).join("");
 
-    // Scroll the selected (latest in the path) into view.
+    // Scroll the selected (latest in the path) into view. On desktop this
+    // scrolls the text panel's internal .panel-scroll container. On mobile
+    // the panel isn't a scroll container (overflow:visible for document-
+    // level scrolling), so scrollIntoView walks up to the document and
+    // hijacks the user's position — jumping them to the bottom of the
+    // ancestry on initial load. Skip it below the desktop breakpoint.
     const selected = target.querySelector(".link-block.selected");
-    if (selected) selected.scrollIntoView({ block: "start", behavior: "instant" });
+    const isDesktop = !window.matchMedia("(max-width: 720px)").matches;
+    if (selected && isDesktop) selected.scrollIntoView({ block: "start", behavior: "instant" });
 
     // Wire the COLLECT and VOTE anchors in the meta lines. stopPropagation
     // on both keeps the click from also firing the meta's "re-select this
@@ -1685,22 +1884,43 @@
   }
 
 
-  // --- Theme toggle ---
-  (function setupTheme() {
-    const btn = document.getElementById("theme-toggle");
-    if (!btn) return;
-    const sync = () => {
-      btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK";
-    };
-    sync();
-    btn.addEventListener("click", (e) => {
-      e.preventDefault();
-      const next = !document.documentElement.classList.contains("dark");
-      document.documentElement.classList.toggle("dark", next);
-      try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
-      sync();
-    });
+  // --- Mobile meta-line elastic snap-back ---
+  // On mobile the .meta line stays on one row and scrolls horizontally
+  // when the content (PLAY, VOTE, COLLECTED BY, …) exceeds the viewport
+  // width. Once the reader stops interacting, we animate it back to
+  // scrollLeft: 0 so the line returns to its natural "id | author |
+  // votes" opening. Captures the scroll event (which does not bubble)
+  // on the document so the listener works for any .meta element regardless
+  // of when renderText() created it. Storage is WeakMap so removed meta
+  // lines release their pending timer reference to GC.
+  (function setupMetaElastic() {
+    const IDLE_MS = 1000;
+    const timers = new WeakMap();
+
+    document.addEventListener("scroll", (e) => {
+      const meta = e.target;
+      if (!(meta instanceof Element)) return;
+      if (!meta.classList || !meta.classList.contains("meta")) return;
+      const parent = meta.parentElement;
+      if (!parent || !parent.classList.contains("link-block")) return;
+
+      // Already at the start — nothing to schedule.
+      if (meta.scrollLeft === 0) {
+        const t = timers.get(meta);
+        if (t) { clearTimeout(t); timers.delete(meta); }
+        return;
+      }
+      const existing = timers.get(meta);
+      if (existing) clearTimeout(existing);
+      const id = setTimeout(() => {
+        meta.scrollTo({ left: 0, behavior: "smooth" });
+        timers.delete(meta);
+      }, IDLE_MS);
+      timers.set(meta, id);
+    }, { capture: true, passive: true });
   })();
+
+  // Hamburger toggle + theme toggle now live in sprawl-topbar.js.
 
   // --- Boot ---
   (async () => {
@@ -1743,8 +1963,14 @@
       renderTree();
       if (document.body.classList.contains("tree-expanded")) {
         frameFullTree();
-      } else if (state.selectedId) {
+      } else if (state.frameMode === "ancestors" && state.selectedId) {
+        // Only reframe to the 15-ancestor zoom if the user was already in
+        // that mode. Initial load leaves state.frameMode === "full", so
+        // iOS's URL-bar-hide resize event no longer snaps the tree into
+        // a zoomed view when the reader starts scrolling.
         frameAncestors(AUTO_FRAME_COUNT);
+      } else {
+        frameFullTree();
       }
     });
 

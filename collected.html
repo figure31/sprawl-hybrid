@@ -178,20 +178,51 @@
   .listing-head .act-buy:hover { text-decoration: underline; }
   .listing-head .act-buy.hidden { display: none; }
 
-  /* Narrow screens: stack the columns top-to-bottom. */
+  /* Narrow screens: stack the columns top-to-bottom, reorder them so
+     LISTINGS (what's actively available) comes first, SALES (recent
+     activity) next, COLLECTORS (ownership list) last — this mirrors the
+     "buy / see / explore" priority a mobile reader actually wants.
+     Each section header also becomes a collapse toggle. */
   @media (max-width: 900px) {
     html, body { overflow: auto; height: auto; }
     .columns {
       position: static;
-      display: block;
+      display: flex;
+      flex-direction: column;
     }
+    #col-listings   { order: 1; }
+    #col-sales      { order: 2; }
+    #col-collectors { order: 3; }
+
     .col {
       overflow: visible;
       border-bottom: var(--rule) solid var(--fg);
     }
     .col::after { display: none; }  /* vertical divider off on narrow screens */
-    .col:first-child { margin-top: var(--topbar-h); }
+    /* Section that renders first visually needs to clear the fixed topbar.
+       With the mobile order above, LISTINGS is always first. */
+    #col-listings { margin-top: var(--topbar-h); }
     .col-body { overflow: visible; }
+
+    /* Click-to-collapse. Tapping the header toggles .collapsed on the
+       section; the body hides, the chevron flips direction. When the
+       section is closed we drop the header's bottom rule so two closed
+       sections back-to-back read as a single band instead of a
+       double-bordered strip. */
+    .col > h2 {
+      cursor: pointer;
+      user-select: none;
+    }
+    .col > h2::after {
+      content: "▾";
+      color: var(--mute);
+      margin-left: 10px;
+      font-size: 0.85em;
+      transition: transform 150ms ease;
+    }
+    .col.collapsed > h2::after { content: "▸"; }
+    .col.collapsed > h2        { border-bottom: 0; }
+    .col.collapsed .col-body   { display: none; }
   }
 </style>
 <link rel="stylesheet" href="sprawl-boot.css">
@@ -221,7 +252,24 @@
     <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
+
+  <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu"
+          aria-controls="nav-mobile" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
 </div>
+
+<nav id="nav-mobile" class="nav-mobile">
+  <a href="feed.html">FEED</a>
+  <a href="authors.html">AUTHORS</a>
+  <a href="entities.html">ENTITIES</a>
+  <a href="arcs.html">ARCS</a>
+  <a href="collected.html">MARKETPLACE</a>
+  <a href="about.html">ABOUT</a>
+  <a href="skill.md">SKILL</a>
+  <a class="js-wallet-connect" href="#">CONNECT</a>
+  <a class="js-theme-toggle"   href="#">DARK</a>
+</nav>
 
 <div class="columns">
   <section class="col" id="col-collectors">
@@ -245,19 +293,16 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     location.href = "index.html";
   });
 });
-(function setupTheme() {
-  const btn = document.getElementById("theme-toggle");
-  if (!btn) return;
-  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
-  sync();
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
-    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
-    sync();
+// Theme toggle is wired in sprawl-topbar.js (covers desktop + hamburger).
+
+// Click a section header to collapse/expand its body. The CSS only hides
+// the body below the mobile breakpoint, so on desktop a click still flips
+// the class but has no visible effect — a free tap, no downside.
+document.querySelectorAll(".col > h2").forEach(h2 => {
+  h2.addEventListener("click", () => {
+    h2.parentElement.classList.toggle("collapsed");
   });
-})();
+});
 </script>
 <script src="sprawl-data.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>

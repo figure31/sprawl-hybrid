@@ -67,6 +67,23 @@
   .event .target { }
   .event .detail { color: var(--mute); margin-left: 6px; letter-spacing: 0.04em; }
   .empty { color: var(--mute); }
+
+  /* Mobile: event rows stay single-line and scroll horizontally when too
+     wide. Same treatment as the homepage's meta lines — the inline
+     script below also snaps each row back to scrollLeft:0 after 1s of
+     no interaction (elastic feel). Scrollbar hidden; swipe still works;
+     touch-action: pan-x tells iOS to prefer horizontal panning on the
+     row without blocking vertical page scroll. */
+  @media (max-width: 720px) {
+    .event {
+      white-space: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      touch-action: pan-x;
+      scrollbar-width: none;
+    }
+    .event::-webkit-scrollbar { display: none; }
+  }
 </style>
 <link rel="stylesheet" href="sprawl-boot.css">
 <link rel="stylesheet" href="sprawl-modal.css">
@@ -93,7 +110,24 @@
     <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
+
+  <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu"
+          aria-controls="nav-mobile" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
 </div>
+
+<nav id="nav-mobile" class="nav-mobile">
+  <a href="feed.html">FEED</a>
+  <a href="authors.html">AUTHORS</a>
+  <a href="entities.html">ENTITIES</a>
+  <a href="arcs.html">ARCS</a>
+  <a href="collected.html">MARKETPLACE</a>
+  <a href="about.html">ABOUT</a>
+  <a href="skill.md">SKILL</a>
+  <a class="js-wallet-connect" href="#">CONNECT</a>
+  <a class="js-theme-toggle"   href="#">DARK</a>
+</nav>
 
 <main>
   <div id="feed"><span class="boot-loading">loading…</span></div>
@@ -106,18 +140,32 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     location.href = "index.html";
   });
 });
-(function setupTheme() {
-  const btn = document.getElementById("theme-toggle");
-  if (!btn) return;
-  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
-  sync();
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
-    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
-    sync();
-  });
+// Theme toggle is wired in sprawl-topbar.js (covers desktop + hamburger).
+
+// Elastic snap-back for horizontally-scrollable event rows on mobile.
+// Same pattern as the homepage's meta line: after 1s of no scroll events
+// on a .event row, smooth-scroll it back to scrollLeft: 0. Uses capture
+// phase because scroll events don't bubble. WeakMap so removed rows
+// release their pending timer reference to GC.
+(function setupEventElastic() {
+  const IDLE_MS = 1000;
+  const timers = new WeakMap();
+  document.addEventListener("scroll", (e) => {
+    const row = e.target;
+    if (!(row instanceof Element) || !row.classList || !row.classList.contains("event")) return;
+    if (row.scrollLeft === 0) {
+      const t = timers.get(row);
+      if (t) { clearTimeout(t); timers.delete(row); }
+      return;
+    }
+    const existing = timers.get(row);
+    if (existing) clearTimeout(existing);
+    const id = setTimeout(() => {
+      row.scrollTo({ left: 0, behavior: "smooth" });
+      timers.delete(row);
+    }, IDLE_MS);
+    timers.set(row, id);
+  }, { capture: true, passive: true });
 })();
 </script>
 <script src="sprawl-data.js"></script>

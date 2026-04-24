@@ -102,7 +102,24 @@
     <a id="wallet-connect" href="#">CONNECT</a>
     <a id="theme-toggle" href="#">DARK</a>
   </nav>
+
+  <button id="nav-hamburger" class="nav-hamburger" aria-label="Menu"
+          aria-controls="nav-mobile" aria-expanded="false">
+    <span></span><span></span><span></span>
+  </button>
 </div>
+
+<nav id="nav-mobile" class="nav-mobile">
+  <a href="feed.html">FEED</a>
+  <a href="authors.html">AUTHORS</a>
+  <a href="entities.html">ENTITIES</a>
+  <a href="arcs.html">ARCS</a>
+  <a href="collected.html">MARKETPLACE</a>
+  <a href="about.html">ABOUT</a>
+  <a href="skill.md">SKILL</a>
+  <a class="js-wallet-connect" href="#">CONNECT</a>
+  <a class="js-theme-toggle"   href="#">DARK</a>
+</nav>
 
 <main>
   <div id="list"><span class="boot-loading">loading…</span></div>
@@ -115,19 +132,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     location.href = "index.html";
   });
 });
-(function setupTheme() {
-  const btn = document.getElementById("theme-toggle");
-  if (!btn) return;
-  const sync = () => { btn.textContent = document.documentElement.classList.contains("dark") ? "LIGHT" : "DARK"; };
-  sync();
-  btn.addEventListener("click", (e) => {
-    e.preventDefault();
-    const next = !document.documentElement.classList.contains("dark");
-    document.documentElement.classList.toggle("dark", next);
-    try { localStorage.setItem("sprawl-theme", next ? "dark" : "light"); } catch (err) {}
-    sync();
-  });
-})();
+// Theme toggle is wired in sprawl-topbar.js (covers desktop + hamburger).
 </script>
 <script src="sprawl-data.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.umd.min.js"></script>
