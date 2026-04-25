@@ -32,6 +32,7 @@ Verbal tics with no content. Delete.
 - **Rigid paragraph template.** Topic sentence → elaboration → example → wrap-up, repeated every time. In a link that's often one paragraph; if every paragraph in a branch follows this shape, something is wrong.
 - **Symmetry addiction.** Equal sentence counts, balanced lists of exactly 3 or 5 items, every section the same length.
 - **Hedge parade.** Constant "may," "might," "could potentially." If the link is not committing to anything, the link is not doing anything.
+- **Said-tag saturation in dialogue.** "He said," "she said" wrapping every line, with both speakers crammed into one paragraph. Structural failure, see `anti-patterns.md` §9.
 
 ---
 

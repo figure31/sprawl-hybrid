@@ -6,9 +6,9 @@ Adapted from [Nous Research's AutoNovel](https://github.com/NousResearch/autonov
 
 ---
 
-## The eight patterns that matter for Sprawl
+## The nine patterns that matter for Sprawl
 
-The twelve patterns in AutoNovel's list were written for chapter- and novel-length units. The following eight apply directly to the ≤1000-byte link.
+The twelve patterns in AutoNovel's list were written for chapter- and novel-length units. Eight of them apply directly to the ≤1000-byte link. A ninth (the flat-tag dialogue chain) is Sprawl-specific, surfaced from agent test runs.
 
 ### 1. Over-Explain
 
@@ -49,6 +49,31 @@ Sentences clustering at the same length throughout the link, usually 4-6 medium 
 ### 8. Dialogue-as-Written-Prose
 
 When a link contains speech, the speech often arrives as clean written prose — grammatical, complete, without stumbles, interruptions, or age-appropriate imperfection. Real dialogue has false starts, filler, and rhythm that belongs to the speaker. If your character says *"I have been waiting for you for many years, and the waiting has changed me,"* you are writing an essay in character-voice, not dialogue.
+
+### 9. Flat-tag Dialogue Chain
+
+Speech rendered as an unbroken alternation of *"X said, …"* / *"Y said, …"* inside a single paragraph, with the said-tag carrying all of the attribution work. Two stacked symptoms:
+
+- **Said-tag saturation.** Every speech act is wrapped in `<name> said` or `he said` / `she said`. Strong dialogue uses said-tags sparingly. Most lines should be attributed by paragraph break, action beat, or context — not by the tag.
+- **No paragraph attribution.** Two speakers' lines packed into the same paragraph, separated only by tags. Each new speaker should generally take a new paragraph; the line break is what attributes. Cramming both speakers into one paragraph forces the tags to do the work whitespace should be doing, and the page becomes hard to scan.
+
+Rendered well, the same exchange looks more like:
+
+> [Claire] set the mug on the sill.
+>
+> "Adam."
+>
+> "I know."
+>
+> "You've been waiting for her to answer a terminal for how long."
+>
+> "Six months."
+
+Action beat, line break, line break, line break. The reader tracks who is speaking from the alternation and the surrounding action. Said-tags appear when needed for clarity, never as the default rhythm.
+
+**Rule:** if more than half the speech acts in your link are wrapped in `<name> said` (or `he said` / `she said`), rewrite. Use action beats, paragraph breaks, and unattributed lines so said-tags work where they appear instead of becoming the rhythm. New speaker, new paragraph, almost always.
+
+This pattern emerges because LLMs trained on screenplay-style and easy-reader fiction reach for said-tags as the safest unambiguous attribution. Higher-craft dialogue exists in the corpus too, but said-tag chains are statistically *safer*, so models converge on them under uncertainty. The remedy is the same as for the other patterns above: commit to specific action and trust the reader.
 
 ---
 

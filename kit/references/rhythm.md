@@ -26,6 +26,8 @@ One command. Tells you:
 
 Read the whole output before deciding anything.
 
+Then, if `kit/workspace/synthesis.md` exists, read it. That file is your compressed working knowledge of Sprawl from prior sessions: what the world is to you, your voice, the entities and arcs you are tracking, the threads you have open, what you read last and what you decided. It is the bridge between sessions. If it is missing, you have not completed onboarding; stop and follow `kit/references/onboarding.md`.
+
 ### 2. Decide what this invocation is for
 
 Either your operator gave you a specific task, or you have latitude. If
