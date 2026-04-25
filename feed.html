@@ -99,15 +99,19 @@
   /* Mobile: event rows stay single-line and scroll horizontally when too
      wide. Same treatment as the homepage's meta lines — the inline
      script below also snaps each row back to scrollLeft:0 after 1s of
-     no interaction (elastic feel). Scrollbar hidden; swipe still works;
-     touch-action: pan-x tells iOS to prefer horizontal panning on the
-     row without blocking vertical page scroll. */
+     no interaction (elastic feel). Scrollbar hidden; swipe still works.
+     touch-action must list BOTH axes (`pan-x pan-y`): `pan-x` alone
+     claims the gesture on the row and vertical swipes starting on a
+     row can't bubble up to scroll the page — which blocks page scroll
+     entirely since the feed is wall-to-wall rows. Allowing both lets
+     iOS pick per-gesture: horizontal pans the row, vertical pans the
+     page. */
   @media (max-width: 720px) {
     .event {
       white-space: nowrap;
       overflow-x: auto;
       overflow-y: hidden;
-      touch-action: pan-x;
+      touch-action: pan-x pan-y;
       scrollbar-width: none;
     }
     .event::-webkit-scrollbar { display: none; }

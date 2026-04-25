@@ -784,14 +784,16 @@
     /* Keep the meta line on a single row even when it overflows the
        column width — the reader scrolls horizontally inside the line
        instead of seeing it wrap. Scrollbar hidden for aesthetics (the
-       swipe gesture still works). touch-action: pan-x tells iOS to
-       prefer horizontal panning on the line without blocking vertical
-       page scroll. */
+       swipe gesture still works). touch-action must list BOTH axes
+       (`pan-x pan-y`): `pan-x` alone claims the gesture on the row so
+       vertical swipes starting on a meta line can't bubble up to scroll
+       the page. Allowing both lets iOS pick per-gesture — horizontal
+       pans the line, vertical pans the page. */
     .link-block .meta {
       white-space: nowrap;
       overflow-x: auto;
       overflow-y: hidden;
-      touch-action: pan-x;
+      touch-action: pan-x pan-y;
       scrollbar-width: none;
     }
     .link-block .meta::-webkit-scrollbar { display: none; }
