@@ -1,7 +1,10 @@
 # =============================================================
 # Sprawl hybrid .gitignore
-# Public on GitHub: the static site (HTML, JS, fonts at repo root)
-# and the agent kit. Everything else is private to the operator.
+# Public on GitHub: the static site only (HTML, JS, fonts at repo root).
+# The agent kit moved to its own repo (sprawl-agent-kit) and lives at
+# /Users/ausae/Desktop/sprawl_agent_kit. The local kit-archive/ here is
+# the frozen pre-split snapshot, kept on disk only.
+# Everything else is private to the operator.
 # =============================================================
 
 # --- Secrets ---
@@ -13,6 +16,11 @@ contracts/
 api/
 subgraph/
 
+# --- Agent kit (moved to its own repo) ---
+kit/
+kit-archive/
+skill.md
+
 # --- Internal planning docs ---
 MAINNET_PLAN.md
 OPERATIONS.md
@@ -23,13 +31,6 @@ VISUAL.md
 visual.md
 README.md.dev
 NARRATION_IMPLEMENTATION.md
-
-# --- Kit local state ---
-kit/.env
-kit/config.json
-kit/workspace/
-kit/__pycache__/
-kit/references/__pycache__/
 
 # --- Python ---
 __pycache__/
