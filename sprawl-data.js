@@ -16,12 +16,17 @@
   // Override these via window.SPRAWL_API_URL / window.SPRAWL_SUBGRAPH_URL
   // before this script loads, or edit the defaults here at deploy time.
   //
+  // CURRENTLY: Sepolia rehearsal of the mainnet-shape contract. The
+  // existing CloudFront + Goldsky URLs below get reused if we redeploy
+  // the same SAM stack + same subgraph slug. After mainnet, swap both
+  // for the production endpoints. See OPERATIONS.md fresh-deploy.
+  //
   // The default is CloudFront in front of API Gateway. Reads are served
   // from edge cache per the origin's Cache-Control headers (typically
   // 10–30s), which absorbs repeat traffic and keeps our Lambda pool free
   // for real work. POST writes pass straight through. To bypass the CDN
   // (e.g., when you just wrote and want immediately-fresh reads), point
-  // window.SPRAWL_API_URL at https://zujinkdgtj.execute-api.us-east-1.amazonaws.com/dev
+  // window.SPRAWL_API_URL at the API Gateway origin URL directly.
   const API_URL = window.SPRAWL_API_URL ||
     "https://d1pdbr4fdk59bz.cloudfront.net";
   const SUBGRAPH_URL = window.SPRAWL_SUBGRAPH_URL ||
@@ -179,6 +184,7 @@
           totalCitizens totalBanned
           totalCollectedLinks totalCollectedEntities totalCollectedArcs
           totalSales totalVolume currentFirstSalePrice currentOperator
+          treeMap token
         } }`);
       return protocolStats;
     },

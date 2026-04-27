@@ -5,7 +5,8 @@
      - address   : lowercase hex string or null when disconnected
      - chainId   : decimal chain id number or null
      - connected : address != null
-     - onSepolia : chainId === 11155111
+     - onSepolia : chainId === 11155111  (Sepolia rehearsal of the
+                                            mainnet-shape contract)
 
    Emits a single "change" callback with the full state whenever
    any field moves. Pages subscribe via sprawlWallet.on(cb); the
@@ -26,18 +27,25 @@
    (UMD build in each page's <head>).
    ============================================================= */
 (function () {
+  // Sepolia rehearsal target. After the rehearsal passes, flip the four
+  // constants below to mainnet values + run the same fresh-deploy
+  // checklist for the production deploy.
   const SEPOLIA_CHAIN_ID = 11155111;
   const SEPOLIA_HEX      = "0xaa36a7";
-  const CONTRACT_ADDRESS = "0x8A8F8d3D9b459c70e55f66Ad6de92987aC350dD6";
+  // Sepolia rehearsal of the upgraded mainnet-shape contract.
+  // Deployed 2026-04-27, block 10744243.
+  const CONTRACT_ADDRESS = "0x6A478883215E7077770A88709a424D91EC78CA97";
   const ETHERSCAN_TX     = "https://sepolia.etherscan.io/tx/";
   const ETHERSCAN_ADDR   = "https://sepolia.etherscan.io/address/";
 
   // Minimal human-readable ABI. Sig struct is {bytes32 r, bytes32 s, uint8 v}
   // per the contract — order matters since we pass tuples positionally.
+  // Mainnet contract dropped the recap fields from collectLink and the name
+  // field from collectEntity; ABI here matches that shape.
   const SPRAWL_ABI = [
     "function register(string name) payable",
-    "function collectLink(uint256 linkId, uint256 parentId, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, bool isRecap, uint256 coversFromId, uint256 coversToId, address author, bytes text, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
-    "function collectEntity(string entityId, string name, string entityType, string description, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
+    "function collectLink(uint256 linkId, uint256 parentId, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, bytes text, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
+    "function collectEntity(string entityId, string entityType, string description, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
     "function collectArc(string arcId, uint256 anchorLinkId, string description, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
     "function buy(uint8 kind, bytes32 id, uint256 expectedPrice) payable",
     "function list(uint8 kind, bytes32 id, uint256 price)",
@@ -46,6 +54,7 @@
     "function firstSalePrice() view returns (uint256)",
     "function registrationFee() view returns (uint256)",
     "function pendingWithdrawals(address) view returns (uint256)",
+    "function totalDueForBuy(uint256 hammer) pure returns (uint256)",
   ];
 
   const state = { address: null, chainId: null, connecting: false };

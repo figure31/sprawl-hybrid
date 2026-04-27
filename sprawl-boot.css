@@ -26,7 +26,7 @@
 
 :root {
   --fg:   #171718;       /* primary text + structural lines */
-  --bg:   #ececec;       /* page background */
+  --bg:   #e0e2e1;       /* page background */
   --mute: #c31a1a;       /* secondary text + non-active tree elements */
   --hl:   #202020;       /* highlighted / active — hover chips, selected cells */
   --tr:   #343535;       /* tree's non-active stroke */
@@ -34,10 +34,10 @@
 }
 
 html.dark {
-  --fg:   #eaeaea;
+  --fg:   #e0e2e1;
   --bg:   #171717;
   --mute: #c22d2d;
-  --hl:   #b8b8b8;
+  --hl:   #a2a2a2;
   --tr:   #b4b4b4;
   --sel-bg: rgba(255, 255, 255, 0.12);
 }

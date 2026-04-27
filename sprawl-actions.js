@@ -280,9 +280,6 @@
               bundle.authoredAt,
               bundle.nonce,
               bundle.beaconBlock,
-              bundle.isRecap,
-              BigInt(bundle.coversFromId || "0"),
-              BigInt(bundle.coversToId || "0"),
               bundle.author,
               ethers.toUtf8Bytes(bundle.text || ""),
               authorSig,
@@ -293,7 +290,6 @@
           if (k === "entity") {
             return await contract.collectEntity(
               bundle.entityId,
-              bundle.name,
               bundle.entityType,
               bundle.description || "",
               bundle.authoredAt,
@@ -330,20 +326,22 @@
   }
 
   // --- BUY ---
-  // Opens with a "Loading details…" state, fetches the asset's content
-  // + mentions from SprawlAPI in parallel, then renders a full preview
-  // before the CONFIRM step. Creator and owner are normally passed by
-  // the caller (the marketplace listing already knows both); if they
-  // aren't, the modal just omits those rows.
+  // Buyer's-premium model. The listing displays the seller's hammer
+  // price (`priceWei`); the buyer pays `priceWei + 25%` to the contract.
+  // The seller receives the full hammer; the protocol receives the
+  // premium. The modal shows the breakdown explicitly so the total isn't
+  // a surprise at signing time.
   async function buy(kind, nativeId, priceWei, display) {
     const err = await ensureReady();
     if (err) return showError(err);
 
     const k = String(kind).toLowerCase();
     const priceBig = BigInt(priceWei || 0);
+    // Premium is 25% of the hammer; integer math matches the contract
+    // exactly (BPS_DENOM = 10000, RESALE_PREMIUM_BPS = 2500).
+    const premium  = (priceBig * 2500n) / 10000n;
+    const totalDue = priceBig + premium;
 
-    // Open modal immediately with a loading state so the click feels
-    // responsive; fetches happen behind the scenes.
     sprawlModal.open({
       title: "BUY",
       body: `<div class="modal-text muted">Loading details…</div>`,
@@ -361,7 +359,7 @@
     }
 
     const body = document.createElement("div");
-    for (const r of buildBuyRows(k, nativeId, priceBig, details)) body.appendChild(r);
+    for (const r of buildBuyRows(k, nativeId, priceBig, premium, totalDue, details)) body.appendChild(r);
     sprawlModal.setBody(body);
     sprawlModal.setButtons([
       { label: "CANCEL",  kind: "muted",   onClick: () => sprawlModal.close() },
@@ -369,7 +367,9 @@
         async () => {
           const contract = await sprawlWallet.getContract();
           const id = assetIdBytes32(k, nativeId);
-          return await contract.buy(kindNumber(k), id, priceBig, { value: priceBig });
+          // Contract verifies msg.value === price + premium and reverts
+          // otherwise. The hammer is what we pass as `expectedPrice`.
+          return await contract.buy(kindNumber(k), id, priceBig, { value: totalDue });
         },
         () => {
           window.dispatchEvent(new CustomEvent("sprawl:bought", {
@@ -451,10 +451,11 @@
     return out;
   }
 
-  // Compose the rows the preview renders. Order: KIND → ID →
-  // CONTENT (stacked, if any) → CREATOR → OWNER → MENTIONS → PRICE.
-  // Each optional row is skipped when its data is missing.
-  function buildBuyRows(kind, nativeId, priceBig, d) {
+  // Compose the rows the BUY preview renders. Order: KIND → ID →
+  // CONTENT (stacked, if any) → CREATOR → OWNER → MENTIONS → LISTING
+  // PRICE → PREMIUM → TOTAL. The premium and total rows make the
+  // buyer's-premium model unmistakable at signing time.
+  function buildBuyRows(kind, nativeId, priceBig, premium, totalDue, d) {
     const rows = [];
     rows.push(sprawlModal.row("KIND", KIND_LABEL[kind]));
     rows.push(sprawlModal.row("ID",   escapeHtml(idLabel(kind, nativeId))));
@@ -469,9 +470,6 @@
       rows.push(sprawlModal.row("OWNER", escapeHtml(formatAuthor(d.ownerName || d.ownerAddr))));
     }
     if (d.mentions && d.mentions.length) {
-      // Cap at 10 so the MENTIONS row stays on a single line in the
-      // wide modal; the excess count is surfaced as "(+N more)" and
-      // the full list is one click away on the item's own page.
       const CAP = 10;
       const shown = d.mentions.slice(0, CAP).join(", ");
       const more  = d.mentions.length > CAP ? ` (+${d.mentions.length - CAP} more)` : "";
@@ -479,9 +477,14 @@
       mentionsRow.classList.add("oneline");
       rows.push(mentionsRow);
     }
-    const priceRow = sprawlModal.row("PRICE", formatEth(priceBig));
-    priceRow.classList.add("spaced-above");
-    rows.push(priceRow);
+
+    // Buyer's-premium breakdown: listing → premium → total. The seller
+    // receives the listing price, the protocol receives the premium.
+    const listingRow = sprawlModal.row("LISTING PRICE", formatEth(priceBig));
+    listingRow.classList.add("spaced-above");
+    rows.push(listingRow);
+    rows.push(sprawlModal.row("BUYER'S PREMIUM (25%)", "+" + formatEth(premium)));
+    rows.push(sprawlModal.row("TOTAL", formatEth(totalDue)));
     return rows;
   }
 
