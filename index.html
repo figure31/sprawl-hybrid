@@ -1018,6 +1018,10 @@
     state.nameByAddr = new Map(
       (citizens || []).map(c => [c.id.toLowerCase(), c.name])
     );
+    // Total registered citizens (including those who haven't written
+    // anything yet). Used by the homepage's AUTHORS stat — matches
+    // what the AUTHORS page shows.
+    state.citizenCount = (citizens || []).length;
 
     // Reshape each link into the legacy "subgraph" shape so the rendering
     // code below works unchanged.
@@ -2161,11 +2165,11 @@
         `<div class="empty">could not load: ${escapeHtml(e.message)}</div>`;
       return;
     }
-    // Update stats in the top bar. "writers" = unique authors visible on the
-    // tree (recaps already filtered out). "links" = total visible links.
-    const writers = new Set(state.links.map(l => l.author.id)).size;
+    // Update stats in the top bar. "AUTHORS" = total registered citizens
+    // (matches the AUTHORS page) — including citizens who registered but
+    // haven't written yet. "LINKS" = total visible links in the tree.
     const linkCount = state.links.length;
-    document.getElementById("stat-writers").textContent = writers;
+    document.getElementById("stat-writers").textContent = state.citizenCount || 0;
     document.getElementById("stat-links").textContent = linkCount;
 
     renderTree();
