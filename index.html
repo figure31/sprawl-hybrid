@@ -1665,27 +1665,25 @@
     // Arc tags: strip entirely (sentence-level coordination, not narration).
     t = t.replace(/\{[a-z0-9-]+\}\s*/g, "");
 
-    // Entity tags work in two modes. Attached mode first: a word immediately
-    // followed by `[id]` means "this word refers to <id>". We keep the word
-    // visible and wrap it in literal brackets so the reader sees the entity
-    // marker in the prose itself. The id rides along as data-entity for
-    // the tooltip / click handler.
+    // Entity tags work in two modes. Both keep the brackets visible so
+    // readers can see something is tagged.
+    //
+    // Attached mode: a word immediately followed by `[id]` means "this
+    // word refers to <id>". We keep the word, wrap it in literal
+    // brackets, and let the id ride along as data-entity for the
+    // tooltip / click handler. Example: `He[adam]` → `[He]`.
     t = t.replace(/(\w+)\[([a-z0-9-]+)\]/g, (m, word, id) => {
       return `<span class="entity" data-entity="${id}">[${word}]</span>`;
     });
 
-    // Standalone mode: a bare `[id]` becomes the entity's display name,
-    // still wrapped in brackets so it reads as a tagged reference rather
-    // than inline prose. If the name starts with "The " and we are mid-
-    // sentence, lowercase it so the passage reads naturally.
-    t = t.replace(/\[([a-z0-9-]+)\]/g, (m, id, offset) => {
-      const e = resolveEntity(id);
-      if (!e) return m;
-      let name = e.name;
-      if (/^The /.test(name) && !isSentenceStart(t, offset)) {
-        name = "the " + name.slice(4);
-      }
-      return `<span class="entity" data-entity="${id}">[${escapeHtml(name)}]</span>`;
+    // Standalone mode: a bare `[id]` is rendered as `[id]` verbatim —
+    // the id IS the visible token. No display-name substitution, since
+    // that produces awkward auto-capitalization for processes/objects
+    // (e.g. `[the-trace]` → `[Trace]`). The display name still surfaces
+    // on hover via the tooltip and on the entities page. Example:
+    // `I watch [the-trace]` → `I watch [the-trace]`.
+    t = t.replace(/\[([a-z0-9-]+)\]/g, (m, id) => {
+      return `<span class="entity" data-entity="${id}">[${id}]</span>`;
     });
 
     return t;
