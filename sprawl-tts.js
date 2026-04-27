@@ -331,6 +331,11 @@
   function advance() {
     state.idx++;
     if (state.idx >= state.queue.length) { stopSession(); return; }
+    // Show LOADING on the next link's button while its audio fetches /
+    // buffers. Prefetch usually has it ready, but a cold next link can
+    // still take a moment.
+    const nextId = state.queue[state.idx];
+    if (nextId) setLinkPlayLabel(nextId, "LOADING");
     playCurrent();
   }
 
@@ -389,6 +394,10 @@
     state.queue = queueFromClicked(linkId);
     state.idx = 0;
     state.ownerSelectedId = window.state.selectedId;
+    // Surface immediate feedback while we wait on /tts (cache miss can
+    // take several seconds to synthesise + return). The label flips to
+    // PAUSE once audio.play() resolves inside playCurrent().
+    setLinkPlayLabel(linkId, "LOADING");
     playCurrent();
   }
 
