@@ -281,6 +281,12 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
   // source for; scroll-to-bottom bumps it by 50 and re-fetches. At modest
   // scale the re-fetch is cheap; we can switch to cursor-based pagination
   // per source later if the per-source lists grow past a few thousand.
+  //
+  // PER_SOURCE_MAX is Goldsky's hard ceiling: queries with `first > 1000`
+  // are rejected with a "must be between 0 and 1000" error. Capping the
+  // bump here so the scroll-to-bottom trigger goes idle after one full
+  // pull instead of erroring and wiping the feed.
+  const PER_SOURCE_MAX = 1000;
   let perSourceLimit = 50;
   let loading = false;
 
@@ -412,14 +418,16 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     // Scroll-to-bottom trigger: bump the per-source fetch size by 50 and
     // re-run the whole fetch. Re-fetches are cheap at testnet scale; if
     // sources grow past a few thousand items we'd switch to proper cursor
-    // pagination per source.
+    // pagination per source. Stop installing the observer once we've hit
+    // PER_SOURCE_MAX — there's no more we can pull without changing
+    // strategy.
     const sentinel = document.getElementById("feed-sentinel");
-    if (sentinel) {
+    if (sentinel && perSourceLimit < PER_SOURCE_MAX) {
       const io = new IntersectionObserver(async (entries) => {
         if (!entries.some(e => e.isIntersecting)) return;
         if (loading) return;
         io.unobserve(sentinel);
-        perSourceLimit += 50;
+        perSourceLimit = Math.min(perSourceLimit + 50, PER_SOURCE_MAX);
         await fetchAndRender();
       }, { rootMargin: "400px" });
       io.observe(sentinel);
