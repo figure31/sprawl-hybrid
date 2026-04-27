@@ -32,6 +32,34 @@ visual.md
 README.md.dev
 NARRATION_IMPLEMENTATION.md
 
+# --- Design / mockups (operator-only; not part of the public site) ---
+mockups/
+*.png
+*.jpg
+*.jpeg
+*.psd
+*.fig
+*.sketch
+
+# --- Claude Code workspace state ---
+.claude/
+
+# --- Editor scratch + backup files ---
+*.swp
+*.swo
+*~
+*.bak
+*.tmp
+*.orig
+
+# --- Forge / SAM build artifacts (defense-in-depth; the parent dirs
+#     contracts/ and api/ are already ignored, but if anything ever
+#     lands at repo root by mistake these patterns catch it) ---
+out/
+cache/
+broadcast/
+.aws-sam/
+
 # --- Python ---
 __pycache__/
 *.pyc
