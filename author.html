@@ -330,7 +330,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
           creator { id name }
         }
         createdSold: sales(first: 1000, where: { asset_: { creator: $addr }, firstSale: true }, orderBy: timestamp, orderDirection: desc) {
-          id price buyer timestamp
+          id listingPrice buyer timestamp
           asset { kind nativeId }
         }
         # Anything this author created that is currently collected on-chain,
@@ -645,7 +645,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
           : "—";
         const body = contentSnippet(a.kind, a.nativeId);
         return `<div class="entity-row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
-          <div class="head">${assetMarkup(a.kind, a.nativeId)} <span>${formatEth(s.price)}</span></div>
+          <div class="head">${assetMarkup(a.kind, a.nativeId)} <span>${formatEth(s.listingPrice)}</span></div>
           ${body ? `<div class="desc">${escapeHtml(body)}</div>` : ""}
           <div class="sub">COLLECTED BY ${buyerLink}</div>
         </div>`;

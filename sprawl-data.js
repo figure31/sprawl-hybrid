@@ -170,7 +170,8 @@
       const { sales } = await graphql(
         `query($n: Int!) {
           sales(first: $n, orderBy: timestamp, orderDirection: desc) {
-            id firstSale price seller buyer protocolCut sellerCut timestamp
+            id firstSale seller buyer timestamp
+            listingPrice buyerPremium protocolProceeds sellerProceeds
             asset { kind nativeId creator { id name } }
           }
         }`, { n: first });

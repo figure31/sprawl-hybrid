@@ -32,14 +32,6 @@
     return KIND_ENUM[k];
   }
 
-  function assetIdBytes32(kind, nativeId) {
-    const k = String(kind || "").toLowerCase();
-    if (k === "link") {
-      return ethers.zeroPadValue(ethers.toBeHex(BigInt(nativeId)), 32);
-    }
-    return ethers.keccak256(ethers.toUtf8Bytes(String(nativeId)));
-  }
-
   // Bundle authorSig/operatorSig arrive as 65-byte packed hex:
   // `0x{r:32}{s:32}{v:1}`. The contract's Sig struct is
   // {bytes32 r, bytes32 s, uint8 v} — we pass a positional tuple.
@@ -337,9 +329,18 @@
 
     const k = String(kind).toLowerCase();
     const priceBig = BigInt(priceWei || 0);
-    // Premium is 25% of the hammer; integer math matches the contract
-    // exactly (BPS_DENOM = 10000, RESALE_PREMIUM_BPS = 2500).
-    const premium  = (priceBig * 2500n) / 10000n;
+    // Premium percentage is admin-tunable on-chain (capped at 50%). Read
+    // the live value so the modal shows the same total the contract will
+    // enforce. Fall back to the contract's deploy-time default of 25% if
+    // the read fails for any reason — the buy() call will revert with
+    // IncorrectPayment if the fallback is wrong, so user funds are safe
+    // either way.
+    let premiumBps = 2500n;
+    try {
+      const reader = sprawlWallet.getReadContract();
+      if (reader) premiumBps = BigInt(await reader.resalePremiumBps());
+    } catch { /* fall back */ }
+    const premium  = (priceBig * premiumBps) / 10000n;
     const totalDue = priceBig + premium;
 
     sprawlModal.open({
@@ -366,10 +367,10 @@
       { label: "CONFIRM", kind: "primary", onClick: () => runConfirmed(
         async () => {
           const contract = await sprawlWallet.getContract();
-          const id = assetIdBytes32(k, nativeId);
-          // Contract verifies msg.value === price + premium and reverts
-          // otherwise. The hammer is what we pass as `expectedPrice`.
-          return await contract.buy(kindNumber(k), id, priceBig, { value: totalDue });
+          // Contract takes the human-readable id directly (parses for
+          // links, hashes for entities/arcs internally). It then verifies
+          // msg.value === price + premium and reverts otherwise.
+          return await contract.buy(kindNumber(k), String(nativeId), priceBig, { value: totalDue });
         },
         () => {
           window.dispatchEvent(new CustomEvent("sprawl:bought", {
@@ -483,7 +484,14 @@
     const listingRow = sprawlModal.row("LISTING PRICE", formatEth(priceBig));
     listingRow.classList.add("spaced-above");
     rows.push(listingRow);
-    rows.push(sprawlModal.row("BUYER'S PREMIUM (25%)", "+" + formatEth(premium)));
+    // Premium label reflects the live bps (e.g. "BUYER'S PREMIUM (25%)").
+    // priceBig may be 0 in callers that pass the listing wei elsewhere;
+    // recompute the label percentage from the actual numbers shown.
+    const pctLabel = priceBig > 0n
+      ? ((premium * 10000n) / priceBig).toString()
+      : "25";
+    const pctWhole = (Number(pctLabel) / 100).toFixed(Number(pctLabel) % 100 === 0 ? 0 : 2);
+    rows.push(sprawlModal.row(`BUYER'S PREMIUM (${pctWhole}%)`, "+" + formatEth(premium)));
     rows.push(sprawlModal.row("TOTAL", formatEth(totalDue)));
     return rows;
   }
@@ -535,8 +543,7 @@
       runConfirmed(
         async () => {
           const contract = await sprawlWallet.getContract();
-          const id = assetIdBytes32(k, nativeId);
-          return await contract.list(kindNumber(k), id, priceWei);
+          return await contract.list(kindNumber(k), String(nativeId), priceWei);
         },
         () => {
           window.dispatchEvent(new CustomEvent("sprawl:listed", {
@@ -580,8 +587,7 @@
       successText: "Unlisted.",
       txFn: async () => {
         const contract = await sprawlWallet.getContract();
-        const id = assetIdBytes32(k, nativeId);
-        return await contract.unlist(kindNumber(k), id);
+        return await contract.unlist(kindNumber(k), String(nativeId));
       },
       onSuccess: () => {
         window.dispatchEvent(new CustomEvent("sprawl:unlisted", {
@@ -868,6 +874,6 @@
     register,
     vote,
     // Helpers exposed for page-level use (e.g., reading pending balance).
-    formatEth, shortAddr, idLabel, assetIdBytes32, kindNumber,
+    formatEth, shortAddr, idLabel, kindNumber,
   };
 })();

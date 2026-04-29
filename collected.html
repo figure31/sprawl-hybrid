@@ -552,7 +552,7 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
     try {
       const data = await query(`{
         sales(first: ${salesLimit}, orderBy: timestamp, orderDirection: desc) {
-          id firstSale price seller buyer timestamp
+          id firstSale listingPrice seller buyer timestamp
           asset { kind nativeId creator { id name } }
         }
       }`);
@@ -574,7 +574,7 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
         html.push(`<div class="row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
           <div>
             ${assetMarkup(a.kind, a.nativeId)}
-            <span class="price">${formatEth(s.price)}</span>
+            <span class="price">${formatEth(s.listingPrice)}</span>
           </div>
           <div class="meta">${tag} | ${txLink}</div>
           <div class="meta"><a href="${authorHref(s.seller)}">${escapeHtml(displayName(s.seller))}</a> → <a href="${authorHref(s.buyer)}">${escapeHtml(displayName(s.buyer))}</a></div>

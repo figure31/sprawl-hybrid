@@ -32,29 +32,31 @@
   // checklist for the production deploy.
   const SEPOLIA_CHAIN_ID = 11155111;
   const SEPOLIA_HEX      = "0xaa36a7";
-  // Sepolia rehearsal of the upgraded mainnet-shape contract.
-  // Deployed 2026-04-27, block 10744243.
-  const CONTRACT_ADDRESS = "0x6A478883215E7077770A88709a424D91EC78CA97";
+  // Sepolia rehearsal #2 — string-id marketplace, mutable resale premium,
+  // signature malleability hardened. Deployed 2026-04-29, block 10756618.
+  const CONTRACT_ADDRESS = "0xC56fE1CF937b3BbD3c675AFD20f0631F61A7c8D1";
   const ETHERSCAN_TX     = "https://sepolia.etherscan.io/tx/";
   const ETHERSCAN_ADDR   = "https://sepolia.etherscan.io/address/";
 
   // Minimal human-readable ABI. Sig struct is {bytes32 r, bytes32 s, uint8 v}
   // per the contract — order matters since we pass tuples positionally.
-  // Mainnet contract dropped the recap fields from collectLink and the name
-  // field from collectEntity; ABI here matches that shape.
+  // The marketplace functions (buy/list/unlist) take the asset's
+  // human-readable id as a `string` (e.g., "123" / "the-procedure" /
+  // "adam-journey"). The contract converts to its bytes32 storage key
+  // internally so decoded tx inputs stay readable on Etherscan.
   const SPRAWL_ABI = [
     "function register(string name) payable",
     "function collectLink(uint256 linkId, uint256 parentId, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, bytes text, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
     "function collectEntity(string entityId, string entityType, string description, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
     "function collectArc(string arcId, uint256 anchorLinkId, string description, uint64 authoredAt, uint64 nonce, uint64 beaconBlock, address author, (bytes32,bytes32,uint8) authorSig, (bytes32,bytes32,uint8) operatorSig) payable",
-    "function buy(uint8 kind, bytes32 id, uint256 expectedPrice) payable",
-    "function list(uint8 kind, bytes32 id, uint256 price)",
-    "function unlist(uint8 kind, bytes32 id)",
+    "function buy(uint8 kind, string id, uint256 expectedPrice) payable",
+    "function list(uint8 kind, string id, uint256 price)",
+    "function unlist(uint8 kind, string id)",
     "function withdraw()",
     "function firstSalePrice() view returns (uint256)",
     "function registrationFee() view returns (uint256)",
+    "function resalePremiumBps() view returns (uint256)",
     "function pendingWithdrawals(address) view returns (uint256)",
-    "function totalDueForBuy(uint256 hammer) pure returns (uint256)",
   ];
 
   const state = { address: null, chainId: null, connecting: false };

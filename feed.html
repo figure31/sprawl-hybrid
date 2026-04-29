@@ -301,7 +301,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
           id name registeredAt
         }
         sales(first: ${perSourceLimit}, orderBy: timestamp, orderDirection: desc) {
-          id firstSale price seller buyer timestamp
+          id firstSale seller buyer timestamp listingPrice buyerPremium
           asset { kind nativeId }
         }
         listings(first: ${perSourceLimit}, orderBy: updatedAt, orderDirection: desc, where: { price_gt: "0" }) {
@@ -377,7 +377,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       // On resale, buyer purchased from seller.
       // Price pipe-separated from whatever comes before it (asset or
       // seller name) for readability.
-      const price = ` | <span class="detail">${formatEth(s.price)}</span>`;
+      const price = ` | <span class="detail">${formatEth(s.listingPrice)}</span>`;
       const targ  = `<a class="target" href="${assetHref(a.kind, a.nativeId)}">${assetLabel(a.kind, a.nativeId)}</a>`;
       const sellerBit = s.firstSale ? "" : ` <span class="verb">from</span> ${actorLink(s.seller)}`;
       events.push({
