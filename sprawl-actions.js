@@ -740,7 +740,10 @@
     try {
       const provider = sprawlWallet.getProvider();
       [citizen, blockNumber] = await Promise.all([
-        fetch(`${window.SPRAWL_API_URL || "https://d1pdbr4fdk59bz.cloudfront.net"}/citizens/${voter.toLowerCase()}`).then(r => r.ok ? r.json() : null),
+        // Use the never-cached /nonce variant — /citizens/{addr} is
+        // edge-cached for 30s, which produces a stale lastNonce and a
+        // guaranteed nonce_conflict when the user votes twice in succession.
+        fetch(`${window.SPRAWL_API_URL || "https://d1pdbr4fdk59bz.cloudfront.net"}/citizens/${voter.toLowerCase()}/nonce`).then(r => r.ok ? r.json() : null),
         provider.getBlockNumber(),
       ]);
     } catch (e) {
