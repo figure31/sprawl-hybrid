@@ -1002,6 +1002,13 @@
   // and by the wheel-zoom cap so the max zoom-out matches the load view.
   const FULL_TREE_PAD = 16;
 
+  // Link id that the homepage and the SPRAWL menu button default to on
+  // load. Picks a curated branch the operator wants new visitors to
+  // see first. Falls back to the longest branch if the id doesn't
+  // exist. The RESET button intentionally ignores this and always
+  // shows the longest branch.
+  const FEATURED_TIP_ID = "23";
+
   // --- Data loading (hybrid: AWS API for off-chain content, Goldsky for
   // citizen names and on-chain state). Normalizes API data into the
   // subgraph-shape the rest of this page expects.
@@ -1581,9 +1588,17 @@
     });
   }
 
+  // Return the curated featured tip if it exists, otherwise fall back
+  // to the longest branch. Used by the initial page load and the
+  // SPRAWL menu button so first-time visitors land on a chosen
+  // storyline rather than whatever happens to be deepest.
+  function findFeaturedTip() {
+    return state.byId[FEATURED_TIP_ID] || findLongestBranchTip();
+  }
+
   // Find the tip whose ancestry back to genesis is longest. Ties broken by
-  // highest id. Used as the default selection on initial page load so the
-  // reader sees the deepest coherent storyline first.
+  // highest id. Used by the RESET button to show the deepest coherent
+  // storyline.
   function findLongestBranchTip() {
     if (!state.links.length) return null;
     const hasChild = new Set();
@@ -2067,10 +2082,19 @@
       });
     }
 
-    // The reset behavior: longest-branch tip, full-tree view, clean URL.
-    // Shared between the reset button and the SPRAWL title.
+    // RESET button: longest-branch tip, full-tree view, clean URL.
+    // Always the deepest coherent storyline, regardless of which
+    // branch is currently featured.
     function resetToHome() {
       selectLink(findLongestBranchTip().id, { updateHash: false });
+      frameFullTree();
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+
+    // SPRAWL title click: the curated featured branch, full-tree view,
+    // clean URL. Same destination as a fresh page load.
+    function featureToHome() {
+      selectLink(findFeaturedTip().id, { updateHash: false });
       frameFullTree();
       history.replaceState(null, "", location.pathname + location.search);
     }
@@ -2081,10 +2105,12 @@
     const titleHome = document.getElementById("title-home");
     if (titleHome) {
       titleHome.addEventListener("click", (e) => {
-        // On the main page itself we don't want to reload — just reset. From
-        // any other page, the href="index.html" does its normal navigation.
+        // On the main page itself we don't want to reload — just go
+        // back to the featured branch. From any other page, the
+        // href="index.html" does its normal navigation, and the
+        // initial-load path will land on the featured branch too.
         e.preventDefault();
-        resetToHome();
+        featureToHome();
       });
     }
 
@@ -2183,14 +2209,15 @@
 
     renderTree();
     // If the URL carries a valid deep-link, honor it and auto-zoom to the
-    // ancestry. Otherwise open at the longest branch tip, zoomed all the way
-    // out so the reader sees the whole tree first. Either way, we do NOT
-    // write to the URL hash on boot — a clean URL stays clean on reload.
+    // ancestry. Otherwise open at the curated featured branch tip,
+    // zoomed all the way out so the reader sees the whole tree first.
+    // Either way, we do NOT write to the URL hash on boot — a clean URL
+    // stays clean on reload.
     const hashed = parseLinkHash();
     if (hashed && state.byId[hashed]) {
       selectLink(hashed, { updateHash: false });
     } else {
-      selectLink(findLongestBranchTip().id, { updateHash: false });
+      selectLink(findFeaturedTip().id, { updateHash: false });
       frameFullTree();
     }
     window.addEventListener("resize", () => {
