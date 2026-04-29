@@ -1741,11 +1741,11 @@
         collectedHtml = ` | COLLECTED BY <a href="${ownerHref}" onclick="event.stopPropagation()">${escapeHtml(ownerLabel)}</a>`;
       }
       // VOTE affordance. Shown when the viewer has a connected wallet on
-      // Sepolia, is registered (implicitly checked via SprawlAPI's reply
+      // Mainnet, is registered (implicitly checked via SprawlAPI's reply
       // in refreshVoterState), hasn't already voted on this link, and
       // the link isn't cleared. Free to cast — pure signature, no tx.
       const canVote = sprawlWallet.isConnected()
-        && sprawlWallet.isOnSepolia()
+        && sprawlWallet.isOnMainnet()
         && state.voterRegistered
         && !state.votedLinkIds.has(String(link.id))
         && !link.cleared;
@@ -1753,11 +1753,11 @@
         ? ` | <a class="act-vote" href="#" data-link-id="${escapeHtml(link.id)}">VOTE</a>`
         : "";
       // COLLECT affordance at the end of the meta line. Same gating as
-      // VOTE: connected wallet, on Sepolia, registered as an author.
+      // VOTE: connected wallet, on Mainnet, registered as an author.
       // On top of that, the link must not already be on-chain, not
       // cleared, and not the genesis (#0) which can't be collected.
       const canCollect = sprawlWallet.isConnected()
-        && sprawlWallet.isOnSepolia()
+        && sprawlWallet.isOnMainnet()
         && state.voterRegistered
         && !ownerAddr
         && !link.cleared
@@ -2250,7 +2250,7 @@
         renderText();
       } else {
         // Address unchanged but some other field moved (e.g., chainId).
-        // The VOTE gate depends on isOnSepolia too, so re-render.
+        // The VOTE gate depends on isOnMainnet too, so re-render.
         renderText();
       }
     });

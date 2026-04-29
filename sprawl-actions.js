@@ -2,7 +2,7 @@
    Sprawl — high-level action flows.
 
    Each function (collect / buy / list / unlist / withdraw) does:
-     1. Ensure wallet is connected and on Sepolia (prompts otherwise)
+     1. Ensure wallet is connected and on Mainnet (prompts otherwise)
      2. Open a preview modal with the relevant details
      3. On confirm: call the contract, transition the modal through
         "check wallet → submitted → confirming → success/error",
@@ -107,7 +107,7 @@
   }
 
   // Gate every action behind: ethers loaded + wallet available + connected
-  // + on Sepolia. Returns null on success, string on soft-failure (we
+  // + on Mainnet. Returns null on success, string on soft-failure (we
   // surface it in a modal). Throws are caught by callers.
   async function ensureReady() {
     if (typeof ethers === "undefined") return "Web3 library failed to load.";
@@ -116,9 +116,9 @@
       try { await sprawlWallet.connect(); }
       catch (e) { return formatErr(e); }
     }
-    if (!sprawlWallet.isOnSepolia()) {
-      try { await sprawlWallet.switchToSepolia(); }
-      catch (e) { return "Please switch your wallet to the Sepolia network."; }
+    if (!sprawlWallet.isOnMainnet()) {
+      try { await sprawlWallet.switchToMainnet(); }
+      catch (e) { return "Please switch your wallet to Ethereum Mainnet."; }
     }
     return null;
   }
@@ -759,7 +759,7 @@
   const SPRAWL_DOMAIN = {
     name: "Sprawl",
     version: "1",
-    chainId: sprawlWallet.SEPOLIA_CHAIN_ID,
+    chainId: sprawlWallet.MAINNET_CHAIN_ID,
     verifyingContract: sprawlWallet.CONTRACT_ADDRESS,
   };
   const VOTE_TYPES = {

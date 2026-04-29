@@ -9,7 +9,7 @@
        shortened address (uppercase) when connected
      - Click when disconnected → sprawlWallet.connect()
      - Click when connected    → navigate to author.html?addr=<self>
-     - Click when connected but on wrong chain → switchToSepolia()
+     - Click when connected but on wrong chain → switchToMainnet()
      - Adds a "WRONG NETWORK" indicator next to the address so it's
        obvious why actions are blocked
 
@@ -18,7 +18,7 @@
 (function () {
   function titleForState(state) {
     if (!state.connected) return "Connect your wallet";
-    if (!state.onSepolia) return state.address + " — wrong network, click to switch to Sepolia";
+    if (!state.onMainnet) return state.address + " — wrong network, click to switch to Mainnet";
     return state.address;
   }
 
@@ -38,7 +38,7 @@
       for (const btn of buttons) {
         if (state.connected) {
           const short = sprawlWallet.shortAddr(state.address).toUpperCase();
-          const suffix = state.onSepolia ? "" : " ⚠";
+          const suffix = state.onMainnet ? "" : " ⚠";
           btn.textContent = short + suffix;
           btn.href = "author.html?addr=" + encodeURIComponent(state.address);
         } else {
@@ -62,10 +62,10 @@
           catch (e) { /* user cancelled — stay disconnected */ }
           return;
         }
-        if (!state.onSepolia) {
+        if (!state.onMainnet) {
           // Connected but wrong chain: offer to switch instead of navigating.
           ev.preventDefault();
-          try { await sprawlWallet.switchToSepolia(); } catch {}
+          try { await sprawlWallet.switchToMainnet(); } catch {}
           return;
         }
         // Connected + correct chain: let the href navigate to the profile.

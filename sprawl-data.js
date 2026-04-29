@@ -16,7 +16,7 @@
   // Override these via window.SPRAWL_API_URL / window.SPRAWL_SUBGRAPH_URL
   // before this script loads, or edit the defaults here at deploy time.
   //
-  // CURRENTLY: Sepolia rehearsal of the mainnet-shape contract. The
+  // CURRENTLY: Mainnet rehearsal of the mainnet-shape contract. The
   // existing CloudFront + Goldsky URLs below get reused if we redeploy
   // the same SAM stack + same subgraph slug. After mainnet, swap both
   // for the production endpoints. See OPERATIONS.md fresh-deploy.

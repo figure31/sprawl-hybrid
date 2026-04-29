@@ -383,7 +383,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
     } else {
       nameEl.remove();
     }
-    const explorerHref = `https://sepolia.etherscan.io/address/${identityAddr}`;
+    const explorerHref = `https://etherscan.io/address/${identityAddr}`;
     document.getElementById("addr").innerHTML =
       // DISCONNECT sits inline with the address and is gated to the
       // own-profile view. It clears the wallet state, sets a sticky
@@ -779,7 +779,7 @@ document.querySelectorAll(".topbar nav a.active").forEach(el => {
       withdrawSlot.innerHTML = "";
       if (!sprawlWallet.isConnected()) return;
       if (sprawlWallet.getAddress() !== addr) return;
-      if (!sprawlWallet.isOnSepolia()) return;
+      if (!sprawlWallet.isOnMainnet()) return;
       let pending;
       try {
         const read = sprawlWallet.getReadContract();

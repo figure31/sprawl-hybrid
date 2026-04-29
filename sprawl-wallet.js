@@ -5,8 +5,7 @@
      - address   : lowercase hex string or null when disconnected
      - chainId   : decimal chain id number or null
      - connected : address != null
-     - onSepolia : chainId === 11155111  (Sepolia rehearsal of the
-                                            mainnet-shape contract)
+     - onMainnet : chainId === 1          (Ethereum mainnet)
 
    Emits a single "change" callback with the full state whenever
    any field moves. Pages subscribe via sprawlWallet.on(cb); the
@@ -17,7 +16,7 @@
    the action flows:
      connect()          — prompt for accounts (eth_requestAccounts)
      forget()           — clear local state (site permission remains)
-     switchToSepolia()  — wallet_switchEthereumChain (adds on 4902)
+     switchToMainnet()  — wallet_switchEthereumChain (adds on 4902)
      getProvider()      — ethers.BrowserProvider wrapping window.ethereum
      getSigner()        — ethers Signer (requires connected account)
      getContract()      — ethers Contract wired with signer
@@ -27,16 +26,13 @@
    (UMD build in each page's <head>).
    ============================================================= */
 (function () {
-  // Sepolia rehearsal target. After the rehearsal passes, flip the four
-  // constants below to mainnet values + run the same fresh-deploy
-  // checklist for the production deploy.
-  const SEPOLIA_CHAIN_ID = 11155111;
-  const SEPOLIA_HEX      = "0xaa36a7";
-  // Sepolia rehearsal #2 — string-id marketplace, mutable resale premium,
-  // signature malleability hardened. Deployed 2026-04-29, block 10756618.
-  const CONTRACT_ADDRESS = "0xC56fE1CF937b3BbD3c675AFD20f0631F61A7c8D1";
-  const ETHERSCAN_TX     = "https://sepolia.etherscan.io/tx/";
-  const ETHERSCAN_ADDR   = "https://sepolia.etherscan.io/address/";
+  // Ethereum mainnet production deployment.
+  // Contract deployed 2026-04-29 at block 24987709.
+  const MAINNET_CHAIN_ID = 1;
+  const MAINNET_HEX      = "0x1";
+  const CONTRACT_ADDRESS = "0x29E485CE51a4dF0b9f4e468855c1C9B4145bdeE2";
+  const ETHERSCAN_TX     = "https://etherscan.io/tx/";
+  const ETHERSCAN_ADDR   = "https://etherscan.io/address/";
 
   // Minimal human-readable ABI. Sig struct is {bytes32 r, bytes32 s, uint8 v}
   // per the contract — order matters since we pass tuples positionally.
@@ -83,7 +79,7 @@
       address:   state.address,
       chainId:   state.chainId,
       connected: !!state.address,
-      onSepolia: state.chainId === SEPOLIA_CHAIN_ID,
+      onMainnet: state.chainId === MAINNET_CHAIN_ID,
       connecting: state.connecting,
     };
   }
@@ -167,12 +163,12 @@
     emit();
   }
 
-  async function switchToSepolia() {
+  async function switchToMainnet() {
     if (!window.ethereum) throw new Error("No wallet detected.");
     try {
       await window.ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: SEPOLIA_HEX }],
+        params: [{ chainId: MAINNET_HEX }],
       });
     } catch (e) {
       // 4902 = chain not yet added in the wallet; try to add it.
@@ -180,11 +176,11 @@
         await window.ethereum.request({
           method: "wallet_addEthereumChain",
           params: [{
-            chainId: SEPOLIA_HEX,
-            chainName: "Sepolia",
+            chainId: MAINNET_HEX,
+            chainName: "Ethereum Mainnet",
             nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-            rpcUrls: ["https://rpc.sepolia.org"],
-            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+            rpcUrls: ["https://ethereum-rpc.publicnode.com"],
+            blockExplorerUrls: ["https://mainnet.etherscan.io"],
           }],
         });
       } else { throw e; }
@@ -221,7 +217,7 @@
   function off(cb) { listeners.delete(cb); }
 
   window.sprawlWallet = {
-    SEPOLIA_CHAIN_ID,
+    MAINNET_CHAIN_ID,
     CONTRACT_ADDRESS,
     ETHERSCAN_TX,
     ETHERSCAN_ADDR,
@@ -229,8 +225,8 @@
     getAddress: () => state.address,
     getChainId: () => state.chainId,
     isConnected: () => !!state.address,
-    isOnSepolia: () => state.chainId === SEPOLIA_CHAIN_ID,
-    connect, disconnect, forget, switchToSepolia,
+    isOnMainnet: () => state.chainId === MAINNET_CHAIN_ID,
+    connect, disconnect, forget, switchToMainnet,
     getProvider, getSigner, getContract, getReadContract,
     shortAddr,
     on, off,

@@ -564,12 +564,12 @@ document.querySelectorAll(".col > h2").forEach(h2 => {
         const a = s.asset || {};
         const tag = s.firstSale ? "FIRST SALE" : "RESALE";
         // Sale.id is "{txhash}-{logindex}" per the subgraph schema. Split to
-        // get the raw tx hash; link it to the Sepolia explorer so anyone can
+        // get the raw tx hash; link it to the Mainnet explorer so anyone can
         // inspect the on-chain record directly.
         const txHash = (s.id || "").split("-")[0];
         const txShort = txHash ? txHash.slice(0, 10) + "…" + txHash.slice(-4) : "";
         const txLink = txHash
-          ? `<a href="https://sepolia.etherscan.io/tx/${txHash}" target="_blank" rel="noopener">${txShort}</a>`
+          ? `<a href="https://etherscan.io/tx/${txHash}" target="_blank" rel="noopener">${txShort}</a>`
           : "";
         html.push(`<div class="row" data-kind="${escapeHtml(a.kind)}" data-native-id="${escapeHtml(String(a.nativeId))}">
           <div>

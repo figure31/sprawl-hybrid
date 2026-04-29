@@ -124,7 +124,7 @@
 
   function setTxLink(hash, explorerBase) {
     if (!hash) return;
-    const base = explorerBase || "https://sepolia.etherscan.io/tx/";
+    const base = explorerBase || "https://etherscan.io/tx/";
     if (!txSlot) {
       txSlot = document.createElement("div");
       txSlot.className = "modal-tx-link";
