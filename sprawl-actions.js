@@ -673,10 +673,60 @@
           const contract = await sprawlWallet.getContract();
           return await contract.register(raw, { value: fee });
         },
-        () => {
-          window.dispatchEvent(new CustomEvent("sprawl:registered", {
-            detail: { address: sprawlWallet.getAddress(), name: raw }
-          }));
+        async () => {
+          // After the on-chain register tx confirms, the subgraph still
+          // needs to index the CitizenRegistered event before write
+          // Lambdas will accept calls from this address. Typical lag is
+          // 30-60s; can stretch to ~90s under load. Poll the
+          // never-cached /nonce endpoint until isRegistered flips, then
+          // tell the user they're ready. Without this, a freshly-
+          // registered user clicking VOTE or COLLECT immediately gets
+          // "not_citizen" and feels like the site is broken.
+          const addr = (sprawlWallet.getAddress() || "").toLowerCase();
+          if (!addr) return;
+          const apiBase = (window.SPRAWL_API_URL || "https://d1pdbr4fdk59bz.cloudfront.net").replace(/\/$/, "");
+          const url = `${apiBase}/citizens/${addr}/nonce`;
+          sprawlModal.setBody(
+            `<div class="modal-text">Registered on-chain.</div>` +
+            `<div class="modal-text muted">Activating your account (this usually takes under a minute)…</div>`
+          );
+          sprawlModal.setButtons([]);
+          const start = Date.now();
+          const TIMEOUT_MS = 120_000;
+          const INTERVAL_MS = 3_000;
+          let active = true;
+          const check = async () => {
+            if (!active) return;
+            try {
+              const r = await fetch(url, { cache: "no-store" });
+              if (r.ok) {
+                const j = await r.json();
+                if (j && j.isRegistered) {
+                  active = false;
+                  sprawlModal.setBody(`<div class="modal-text">You're set. Welcome.</div>`);
+                  sprawlModal.setButtons([{ label: "CLOSE", kind: "primary", onClick: () => sprawlModal.close() }]);
+                  window.dispatchEvent(new CustomEvent("sprawl:registered", {
+                    detail: { address: addr, name: raw }
+                  }));
+                  return;
+                }
+              }
+            } catch { /* network blip; keep polling */ }
+            if (Date.now() - start > TIMEOUT_MS) {
+              active = false;
+              sprawlModal.setBody(
+                `<div class="modal-text">Registered on-chain.</div>` +
+                `<div class="modal-text muted">The indexer is slower than usual today. Your registration is permanent — try writing or voting in a minute or two.</div>`
+              );
+              sprawlModal.setButtons([{ label: "CLOSE", kind: "primary", onClick: () => sprawlModal.close() }]);
+              window.dispatchEvent(new CustomEvent("sprawl:registered", {
+                detail: { address: addr, name: raw }
+              }));
+              return;
+            }
+            setTimeout(check, INTERVAL_MS);
+          };
+          check();
         },
         "Registered."
       );
