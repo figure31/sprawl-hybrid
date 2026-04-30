@@ -1778,13 +1778,13 @@
       const voteActionHtml = canVote
         ? ` | <a class="act-vote" href="#" data-link-id="${escapeHtml(link.id)}">VOTE</a>`
         : "";
-      // COLLECT affordance at the end of the meta line. Same gating as
-      // VOTE: connected wallet, on Mainnet, registered as an author.
-      // On top of that, the link must not already be on-chain, not
+      // COLLECT affordance at the end of the meta line. Collection is
+      // permissionless on the contract — anyone can pay firstSalePrice
+      // and become first owner — so the only client-side gates are:
+      // wallet connected, on Mainnet, link not already collected, not
       // cleared, and not the genesis (#0) which can't be collected.
       const canCollect = sprawlWallet.isConnected()
         && sprawlWallet.isOnMainnet()
-        && state.voterRegistered
         && !ownerAddr
         && !link.cleared
         && link.id !== "0";
